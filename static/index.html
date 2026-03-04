@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>Dario's Portfolio</title>
+    <link rel="icon" type="image/png" sizes="512x512" href="favicon.png">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <button class="menu-toggle" onclick="toggleMobileMenu()" aria-label="Menü">
+        <span></span><span></span><span></span>
+    </button>
+
+    <div class="app-container">
+
+        <!-- ── Sidebar ── -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-top">
+                <div class="logo">
+                    <div class="logo-mark">D</div>
+                    <div class="logo-text">
+                        <span class="logo-name">Dario's</span>
+                        <span class="logo-sub">Portfolio</span>
+                    </div>
+                </div>
+                <nav class="sidebar-nav">
+                    <a class="nav-item active" id="nav-dashboard" onclick="showPage('page-dashboard')">
+                        <span class="nav-icon">▦</span>Dashboard
+                    </a>
+                    <a class="nav-item" id="nav-investments" onclick="showPage('page-investments')">
+                        <span class="nav-icon">◈</span>Investments
+                    </a>
+                    <a class="nav-item" id="nav-analysis" onclick="showPage('page-analysis')">
+                        <span class="nav-icon">◎</span>Analyse
+                    </a>
+                </nav>
+            </div>
+            <div class="sidebar-bottom">
+                <div class="sidebar-user">
+                    <div class="user-avatar">DA</div>
+                    <div class="user-info">
+                        <span class="user-name">Dario</span>
+                        <span class="user-status"><span class="status-dot"></span>Live</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- ── Main ── -->
+        <main class="main-content">
+
+            <!-- DASHBOARD -->
+            <section id="page-dashboard" class="page">
+                <header class="page-header">
+                    <div class="header-left">
+                        <h1 id="greeting">Guten Abend</h1>
+                        <p class="header-sub">Dein Vermögen im Überblick</p>
+                    </div>
+                    <div class="header-right">
+                        <div class="live-badge"><span class="pulse"></span>LIVE</div>
+                    </div>
+                </header>
+
+                <div class="page-content">
+                    <div class="dashboard-top">
+                        <!-- Donut -->
+                        <div class="card panel-donut">
+                            <div class="card-head"><span class="card-label">Verteilung</span></div>
+                            <div class="card-body">
+                                <div class="donut-wrap">
+                                    <canvas id="portfolioChart"></canvas>
+                                    <div class="donut-center" id="donut-center-text">—</div>
+                                </div>
+                                <div id="donut-legend" class="donut-legend"></div>
+                            </div>
+                        </div>
+
+                        <!-- Performance -->
+                        <div class="card panel-performance" id="performance-display">
+                            <div class="card-head"><span class="card-label">Performance</span></div>
+                            <div class="card-body">
+                                <div class="perf-loading">Lade Daten…</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Line Chart -->
+                    <div class="card">
+                        <div class="card-head">
+                            <div class="chart-toolbar">
+                                <span class="card-label">Vermögensverlauf</span>
+                                <div style="display:flex; align-items:center; gap:14px; margin-left:auto;">
+                                    <div class="time-filters">
+                                        <button onclick="updateTimeFilter(1)">1T</button>
+                                        <button onclick="updateTimeFilter(7)">1W</button>
+                                        <button onclick="updateTimeFilter(30)">1M</button>
+                                        <button onclick="updateTimeFilter('ytd')">YTD</button>
+                                        <button onclick="updateTimeFilter(365)">1J</button>
+                                        <button class="active" onclick="updateTimeFilter('all')">ALL</button>
+                                    </div>
+                                    <div class="chart-return-badge" id="chart-return-badge" style="display:none"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-area">
+                                <canvas id="lineChart"></canvas>
+                                <div class="chart-loader" id="chart-loader">
+                                    <div class="loader-bars">
+                                        <span></span><span></span><span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- INVESTMENTS -->
+            <section id="page-investments" class="page" style="display:none;">
+                <header class="page-header">
+                    <div>
+                        <h1>Investments</h1>
+                        <p class="header-sub">Alle Positionen im Detail</p>
+                    </div>
+                </header>
+                <div class="page-content">
+                    <div class="inv-stats-row">
+                        <div class="stat-tile">
+                            <span class="stat-label">Gesamt</span>
+                            <span class="stat-value" id="inv-total-all">—</span>
+                            <span class="stat-currency">CHF</span>
+                        </div>
+                        <div class="stat-tile">
+                            <span class="stat-label">Aktien</span>
+                            <span class="stat-value" id="inv-total-stocks">—</span>
+                            <span class="stat-currency">CHF</span>
+                        </div>
+                        <div class="stat-tile stat-tile-cash" onclick="editCash()" title="Klicken zum Bearbeiten">
+                            <span class="stat-label">Cash ✎</span>
+                            <span class="stat-value" id="inv-total-cash">—</span>
+                            <span class="stat-currency">CHF</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-head"><span class="card-label">Positionen</span></div>
+                        <div class="card-body" style="padding: 12px;">
+                            <div id="positions-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ANALYSE -->
+            <section id="page-analysis" class="page" style="display:none;">
+                <header class="page-header">
+                    <div>
+                        <h1>Analyse</h1>
+                        <p class="header-sub">Monatsrenditen der letzten 2 Jahre</p>
+                    </div>
+                </header>
+                <div class="page-content">
+                    <div id="heatmap-container"></div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- FAB -->
+    <button id="fab-add" onclick="toggleModal(true)" aria-label="Transaktion hinzufügen">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+    </button>
+
+    <!-- Transaction Modal -->
+    <div id="transaction-modal" class="modal" onclick="handleModalBackdrop(event)">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2>Neue Transaktion</h2>
+                <button class="modal-close" onclick="toggleModal(false)">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-field"><label>Asset Name</label><input type="text" id="asset-name" placeholder="z.B. MSCI World"></div>
+                    <div class="form-field"><label>ISIN</label><input type="text" id="isin" placeholder="z.B. IE00B4L5Y983"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field"><label>Anzahl Stück</label><input type="number" id="amount" placeholder="0.00" step="any"></div>
+                    <div class="form-field"><label>Preis (USD)</label><input type="number" id="price" placeholder="0.00" step="any"></div>
+                    <div class="form-field"><label>Kurs USD/CHF</label><input type="number" id="exchange-rate" placeholder="0.00" step="any"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field"><label>Kaufdatum</label><input type="date" id="purchase-date"></div>
+                    <div class="form-field"><label>Kommission (CHF)</label><input type="number" id="fee-commission" placeholder="0.00" step="any"></div>
+                    <div class="form-field"><label>Stempelgebühr (CHF)</label><input type="number" id="fee-stempel" placeholder="0.00" step="any"></div>
+                </div>
+                <div id="transaction-preview" class="transaction-preview" style="display:none;">
+                    <span class="preview-label">Total CHF</span>
+                    <span class="preview-value" id="preview-total">—</span>
+                </div>
+                <button class="btn-save" onclick="calculate()">Transaktion speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="edit-modal" class="modal" onclick="handleEditModalBackdrop(event)">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2>Transaktion bearbeiten</h2>
+                <button class="modal-close" onclick="toggleEditModal(false)">✕</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-id">
+                <div class="form-row">
+                    <div class="form-field"><label>Asset Name</label><input type="text" id="edit-asset-name"></div>
+                    <div class="form-field"><label>ISIN</label><input type="text" id="edit-isin"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field"><label>Anzahl Stück</label><input type="number" id="edit-amount" step="any"></div>
+                    <div class="form-field"><label>Preis (USD)</label><input type="number" id="edit-price" step="any"></div>
+                    <div class="form-field"><label>Kurs USD/CHF</label><input type="number" id="edit-rate" step="any"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field"><label>Kaufdatum</label><input type="date" id="edit-date"></div>
+                </div>
+                <button class="btn-save" onclick="saveEdit()">Änderungen speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
