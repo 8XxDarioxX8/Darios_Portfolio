@@ -68,6 +68,7 @@ function showPage(pageId) {
         loadPerformanceChart('max');
         loadPeriodPerformance();
     } else if (pageId === 'page-analysis') {
+        loadAssetOverview();
         loadHeatmap();
     } else if (pageId === 'page-investments') {
         renderPortfolio();
@@ -115,7 +116,7 @@ function renderPortfolio() {
             <div class="asset-details">
                 <table class="details-table">
                     <thead>
-                        <tr><th>Datum</th><th>Stk.</th><th>Kurs USD</th><th>USD/CHF</th><th>Total CHF</th><th></th></tr>
+                        <tr><th>Datum</th><th>Stk.</th><th>Kurs USD</th><th>USD/CHF</th><th>Total CHF</th><th>Stempelgebühr</th><th></th></tr>
                     </thead>
                     <tbody>
                         ${asset.buys.map(buy => `
@@ -125,6 +126,7 @@ function renderPortfolio() {
                                 <td>${parseFloat(buy.priceUSD).toFixed(2)}</td>
                                 <td>${parseFloat(buy.rate).toFixed(4)}</td>
                                 <td>${parseFloat(buy.totalCHF).toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                <td style="color:var(--text3)">${(buy.fees || 0).toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                                 <td>
                                     <button class="action-btn edit"   onclick="openEditModal(${buy.id})" title="Bearbeiten">✎</button>
                                     <button class="action-btn delete" onclick="deleteBuy(${buy.id})"     title="Löschen">✕</button>
@@ -258,10 +260,8 @@ async function loadPerformanceChart(period = 'max') {
         const fxObj = allData.find(d => d.ticker === 'USDCHF=X');
         if (!fxObj || !fxObj.history.length) return;
 
-        // Filter to dates after first purchase
         let fxHistory = fxObj.history.filter(h => new Date(h.full_date) >= earliestDate);
 
-        // For intraday: filter to market hours only
         fxHistory = fxHistory.filter(h => {
             if (!h.full_date.includes(':')) return true;
             const [hour, min] = h.full_date.split(' ')[1].split(':').map(Number);
@@ -288,10 +288,8 @@ async function loadPerformanceChart(period = 'max') {
                 const buyTime = new Date(asset.date + ' 00:00:00').getTime();
                 if (buyTime > currentTime) return;
 
-                // Investiert-Linie: exakter Kaufbetrag (priceUSD am Kauftag × rate am Kauftag × anzahl)
                 investedVal += asset.totalCHF;
 
-                // Marktwert: aktueller Kurs × aktueller FX-Kurs × anzahl
                 const tickerData = allData.find(d => d.ticker === asset.ticker);
                 if (tickerData) {
                     const priceEntry = tickerData.history.find(h => h.date === dateLabel);
@@ -377,16 +375,12 @@ async function loadPerformanceChart(period = 'max') {
             }
         });
 
-        // Performance stats (für Performance-Box): letzter Marktwert vs letztes Investiert
         const lastValid  = v => [...v].reverse().find(x => x != null) || 0;
         const currentVal = lastValid(portfolioValues);
         const invested   = lastValid(investedValues);
         const profitCHF  = currentVal - invested;
         const profitPct  = invested > 0 ? (profitCHF / invested * 100) : 0;
 
-        // TWR (Time-Weighted Return) für Badge
-        // Für jeden Tag: tagesr = Marktwert_Ende / (Marktwert_Vordag + neue_Einzahlungen_heute)
-        // Neue Einzahlungen = Anstieg der investedValues-Linie von Tag zu Tag
         let twr = 1.0;
         let prevMarket   = null;
         let prevInvested = null;
@@ -397,9 +391,7 @@ async function loadPerformanceChart(period = 'max') {
             if (mkt == null || inv == null) continue;
 
             if (prevMarket !== null && prevInvested !== null) {
-                // Neue Einzahlung an diesem Tag
                 const cashflow = Math.max(0, inv - prevInvested);
-                // Basis = gestriger Marktwert + heutige Einzahlung
                 const basis = prevMarket + cashflow;
                 if (basis > 0) {
                     twr *= (mkt / basis);
@@ -411,7 +403,6 @@ async function loadPerformanceChart(period = 'max') {
 
         const twrPct = (twr - 1) * 100;
 
-        // Badge anzeigen
         const badge = document.getElementById('chart-return-badge');
         if (badge) {
             const isPos = twrPct >= 0;
@@ -453,7 +444,6 @@ function displayPerformance() {
     const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
     const col    = v => v >= 0 ? 'var(--green)' : 'var(--red)';
 
-    // Update KPI strip
     setEl('kpi-total',    p.currentVal.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
     setEl('kpi-invested', p.invested.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
     const gainEl  = document.getElementById('kpi-gain');
@@ -510,7 +500,6 @@ async function loadPeriodPerformance() {
         { id: 'pp-1y', api: '1y',  label: '1J' }
     ];
 
-    // Load all data in parallel
     const allTickers = [...tickers, 'USDCHF=X'];
 
     for (const p of periods) {
@@ -524,11 +513,9 @@ async function loadPeriodPerformance() {
             const fxObj = allData.find(d => d.ticker === 'USDCHF=X');
             if (!fxObj || !fxObj.history.length) continue;
 
-            // Get first and last FX
             const fxFirst = fxObj.history[0]?.price || 0.88;
             const fxLast  = fxObj.history.at(-1)?.price || fxFirst;
 
-            // Compute portfolio value at start and end of period
             let valStart = 0, valEnd = 0;
 
             portfolio.forEach(asset => {
@@ -555,6 +542,166 @@ async function loadPeriodPerformance() {
             const el = document.getElementById(p.id);
             if (el) el.textContent = '—';
         }
+    }
+}
+
+// ─── ASSET OVERVIEW TABLE ────────────────────────────────
+
+async function loadAssetOverview() {
+    const container = document.getElementById('asset-overview-container');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="card">
+            <div class="card-head"><span class="card-label">Positions-Übersicht</span></div>
+            <div class="card-body" style="padding:0">
+                <div style="text-align:center;padding:32px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text3)">Lade Kursdaten…</div>
+            </div>
+        </div>`;
+
+    const tickers = [...new Set(portfolio.map(i => i.ticker))].filter(Boolean);
+    if (!tickers.length) {
+        container.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;padding:32px;color:var(--text3);font-size:12px">Keine Positionen vorhanden</div></div>`;
+        return;
+    }
+
+    try {
+        const allTickers = [...tickers, 'USDCHF=X'];
+        const allData = await Promise.all(allTickers.map(async t => {
+            const res  = await fetch(`/get_history?symbol=${t}&period=max`);
+            const data = await res.json();
+            return { ticker: t, history: Array.isArray(data) ? data : [] };
+        }));
+
+        const fxObj = allData.find(d => d.ticker === 'USDCHF=X');
+        const currentFX  = fxObj?.history?.at(-1)?.price || 0.88;
+
+        // Group portfolio by ISIN
+        const grouped = portfolio.reduce((acc, item) => {
+            const key = item.isin || item.name;
+            if (!acc[key]) acc[key] = {
+                name: item.name,
+                isin: item.isin,
+                ticker: item.ticker,
+                totalAmount: 0,
+                totalInvested: 0,
+                totalFees: 0,
+                avgRate: 0,
+                rateSum: 0,
+                items: []
+            };
+            acc[key].totalAmount   += item.amount;
+            acc[key].totalInvested += item.totalCHF;
+            acc[key].rateSum       += item.rate;
+            acc[key].items.push(item);
+            return acc;
+        }, {});
+
+        // Compute current prices and gains per group
+        const rows = [];
+        let totals = { invested: 0, wert: 0, stockGain: 0, fxGain: 0, totalGain: 0, fees: 0 };
+
+        for (const key in grouped) {
+            const g = grouped[key];
+            const tickerData = allData.find(d => d.ticker === g.ticker);
+            const currentPriceUSD = tickerData?.history?.at(-1)?.price || 0;
+
+            // Weighted avg buy rate
+            const avgBuyRate = g.rateSum / g.items.length;
+
+            // Current value in CHF
+            const currentValueCHF = g.totalAmount * currentPriceUSD * currentFX;
+
+            // Invested: sum of (amount × priceUSD_at_buy × rate_at_buy)
+            const investedCHF = g.totalInvested;
+
+            // Stock gain: what we'd have if FX hadn't changed (use avg buy rate for both)
+            const valueAtBuyRate = g.totalAmount * currentPriceUSD * avgBuyRate;
+            const stockGainCHF   = valueAtBuyRate - investedCHF;
+
+            // FX gain: what current value vs value-at-buy-rate
+            const fxGainCHF = currentValueCHF - valueAtBuyRate;
+
+            // Total gain
+            const totalGainCHF = currentValueCHF - investedCHF;
+
+            // Fees: sum from individual buys
+            const feesCHF = g.items.reduce((s, it) => s + (it.fees || 0), 0);
+
+            rows.push({ name: g.name, ticker: g.ticker || '—', amount: g.totalAmount, wert: currentValueCHF, invested: investedCHF, stockGain: stockGainCHF, fxGain: fxGainCHF, totalGain: totalGainCHF, fees: feesCHF });
+
+            totals.invested  += investedCHF;
+            totals.wert      += currentValueCHF;
+            totals.stockGain += stockGainCHF;
+            totals.fxGain    += fxGainCHF;
+            totals.totalGain += totalGainCHF;
+            totals.fees      += feesCHF;
+        }
+
+        const fmtCHF = v => v.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const gainCell = (v) => {
+            const cls = v >= 0 ? 'gain-pos' : 'gain-neg';
+            const sign = v >= 0 ? '+' : '';
+            return `<td class="overview-td num ${cls}">${sign}${fmtCHF(v)}</td>`;
+        };
+
+        const rowsHtml = rows.map((r, i) => `
+            <tr class="overview-row">
+                <td class="overview-td idx">${i}</td>
+                <td class="overview-td"><span class="ov-name">${r.name}</span></td>
+                <td class="overview-td"><span class="ov-ticker">${r.ticker}</span></td>
+                <td class="overview-td num">${r.amount.toLocaleString('de-CH', {minimumFractionDigits: 0, maximumFractionDigits: 4})}</td>
+                <td class="overview-td num">${fmtCHF(r.wert)}</td>
+                <td class="overview-td num">${fmtCHF(r.invested)}</td>
+                ${gainCell(r.stockGain)}
+                ${gainCell(r.fxGain)}
+                ${gainCell(r.totalGain)}
+                <td class="overview-td num neutral-val">${fmtCHF(r.fees)}</td>
+            </tr>`).join('');
+
+        const totalRowHtml = `
+            <tr class="overview-total-row">
+                <td class="overview-td idx"></td>
+                <td class="overview-td" colspan="2"><span class="ov-name">Total</span></td>
+                <td class="overview-td num">—</td>
+                <td class="overview-td num">${fmtCHF(totals.wert)}</td>
+                <td class="overview-td num">${fmtCHF(totals.invested)}</td>
+                ${gainCell(totals.stockGain)}
+                ${gainCell(totals.fxGain)}
+                ${gainCell(totals.totalGain)}
+                <td class="overview-td num neutral-val">${fmtCHF(totals.fees)}</td>
+            </tr>`;
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-head"><span class="card-label">Positions-Übersicht</span></div>
+                <div style="overflow-x:auto">
+                    <table class="overview-table">
+                        <thead>
+                            <tr>
+                                <th class="overview-th idx"></th>
+                                <th class="overview-th">Name</th>
+                                <th class="overview-th">Ticker</th>
+                                <th class="overview-th num">Menge</th>
+                                <th class="overview-th num">Wert (CHF)</th>
+                                <th class="overview-th num">Investiert (CHF)</th>
+                                <th class="overview-th num">Stock Gain</th>
+                                <th class="overview-th num">FX Gain</th>
+                                <th class="overview-th num">Total Gain</th>
+                                <th class="overview-th num">Gebühren</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                            ${totalRowHtml}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+
+    } catch (e) {
+        console.error('Asset-Overview-Fehler:', e);
+        container.innerHTML = `<div class="card"><div class="card-body" style="color:var(--red);text-align:center;padding:32px;font-size:12px">Fehler beim Laden der Übersicht</div></div>`;
     }
 }
 
@@ -710,7 +857,7 @@ function handleEditModalBackdrop(e) {
 }
 
 function clearTransactionForm() {
-    ['asset-name','isin','amount','price','exchange-rate','purchase-date','fee-commission','fee-stempel']
+    ['asset-name','isin','amount','price','exchange-rate','purchase-date']
         .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const preview = document.getElementById('transaction-preview');
     if (preview) preview.style.display = 'none';
@@ -751,13 +898,17 @@ async function calculate() {
         return;
     }
 
+    const totalCHF  = amount * (isNaN(price) ? 0 : price) * (isNaN(rate) ? 1 : rate);
+    const totalFees = totalCHF * 0.0015; // Stempelgebühr 0.15%
+
     const item = {
         name, isin, amount,
         priceUSD: isNaN(price) ? 0 : price,
         rate:     isNaN(rate)  ? 1 : rate,
         date,
-        totalCHF: amount * (isNaN(price) ? 0 : price) * (isNaN(rate) ? 1 : rate),
-        ticker:   TICKER_MAP[isin] || ''
+        totalCHF,
+        ticker: TICKER_MAP[isin] || '',
+        fees:   totalFees
     };
 
     try {
@@ -810,7 +961,8 @@ async function saveEdit() {
     const price  = parseFloat(document.getElementById('edit-price')?.value) || 0;
     const rate   = parseFloat(document.getElementById('edit-rate')?.value)  || 1;
     const date   = document.getElementById('edit-date')?.value;
-    const updated = { ...item, name, isin, amount, priceUSD: price, rate, date, totalCHF: amount * price * rate };
+    const fees    = amount * price * rate * 0.0015; // Stempelgebühr 0.15%
+    const updated = { ...item, name, isin, amount, priceUSD: price, rate, date, totalCHF: amount * price * rate, fees };
 
     try {
         await fetch(`/api/portfolio/${dbId}`, {

@@ -657,3 +657,53 @@ body {
     .page-header { padding: 16px 20px 14px; }
     .page-content { padding: 18px 20px; }
 }
+/* ── Asset Overview Table ────────────────────────────────── */
+.overview-table {
+    width: 100%; border-collapse: collapse; min-width: 760px;
+}
+
+.overview-th {
+    font-size: 10px; font-weight: 600; color: var(--text3);
+    letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 10px 14px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    white-space: nowrap;
+}
+.overview-th.num { text-align: right; }
+.overview-th.idx { width: 36px; color: var(--border2); padding-right: 0; }
+
+.overview-td {
+    font-family: var(--mono); font-size: 12px; color: var(--text2);
+    padding: 11px 14px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.overview-td.num { text-align: right; }
+.overview-td.idx {
+    font-size: 10px; color: var(--text3); padding-right: 0;
+    text-align: right;
+}
+
+.overview-row:hover .overview-td { background: var(--bg); color: var(--text); }
+.overview-row:last-child .overview-td { border-bottom: none; }
+
+.overview-total-row .overview-td {
+    border-top: 2px solid var(--border2);
+    border-bottom: none;
+    background: var(--surface2);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.ov-name  { font-family: var(--body); font-size: 13px; font-weight: 600; color: var(--text); }
+.ov-ticker {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    color: var(--accent); background: var(--accent-bg);
+    border: 1px solid var(--accent-soft);
+    padding: 2px 7px; border-radius: 99px;
+    letter-spacing: 0.04em;
+}
+
+.gain-pos { color: var(--green) !important; font-weight: 600; }
+.gain-neg { color: var(--red)   !important; font-weight: 600; }
+.neutral-val { color: var(--text3); }

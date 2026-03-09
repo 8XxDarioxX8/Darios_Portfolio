@@ -164,10 +164,11 @@
                 <header class="page-header">
                     <div>
                         <h1>Analyse</h1>
-                        <p class="header-sub">Monatsrenditen der letzten 2 Jahre</p>
+                        <p class="header-sub">Performance-Übersicht & Monatsrenditen</p>
                     </div>
                 </header>
                 <div class="page-content">
+                    <div id="asset-overview-container" style="margin-bottom:16px"></div>
                     <div id="heatmap-container"></div>
                 </div>
             </section>
@@ -201,8 +202,6 @@
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="purchase-date"></div>
-                    <div class="form-field"><label>Kommission (CHF)</label><input type="number" id="fee-commission" placeholder="0.00" step="any"></div>
-                    <div class="form-field"><label>Stempelgebühr (CHF)</label><input type="number" id="fee-stempel" placeholder="0.00" step="any"></div>
                 </div>
                 <div id="transaction-preview" class="transaction-preview" style="display:none;">
                     <span class="preview-label">Total CHF</span>

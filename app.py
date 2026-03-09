@@ -5,11 +5,9 @@ import sqlite3
 import os
 
 
-# Static folder zeigt auf 'static' Unterordner
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# Absolute Pfade (wichtig für Render)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "portfolio.db")
 
@@ -21,20 +19,30 @@ def get_db_connection():
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
+
     # Portfolio Tabelle
     c.execute('''CREATE TABLE IF NOT EXISTS portfolio
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT, isin TEXT, amount REAL, priceUSD REAL,
-                  rate REAL, date TEXT, totalCHF REAL, ticker TEXT)''')
-    
+                  rate REAL, date TEXT, totalCHF REAL, ticker TEXT,
+                  fees REAL DEFAULT 0)''')
+
+    # Migration: fees-Spalte hinzufügen falls sie noch nicht existiert
+    try:
+        c.execute('ALTER TABLE portfolio ADD COLUMN fees REAL DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Spalte existiert bereits
+
+    # Migration: Stempelgebühr (0.15%) für bestehende Einträge ohne Gebühren nachberechnen
+    c.execute('UPDATE portfolio SET fees = totalCHF * 0.0015 WHERE fees IS NULL OR fees = 0')
+
     # Cash Tabelle
     c.execute('''CREATE TABLE IF NOT EXISTS cash
                  (id INTEGER PRIMARY KEY, balance REAL)''')
     c.execute('SELECT * FROM cash WHERE id = 1')
     if not c.fetchone():
         c.execute('INSERT INTO cash (id, balance) VALUES (1, 0)')
-    
+
     conn.commit()
     conn.close()
 
@@ -83,16 +91,16 @@ def get_portfolio():
 @app.route('/api/portfolio', methods=['POST'])
 def add_portfolio():
     data = request.json
+    fees = data.get('fees', 0) or 0
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''INSERT INTO portfolio (name, isin, amount, priceUSD, rate, date, totalCHF, ticker)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+    c.execute('''INSERT INTO portfolio (name, isin, amount, priceUSD, rate, date, totalCHF, ticker, fees)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
               (data['name'], data['isin'], data['amount'], data['priceUSD'],
-               data['rate'], data['date'], data['totalCHF'], data['ticker']))
+               data['rate'], data['date'], data['totalCHF'], data['ticker'], fees))
     conn.commit()
     new_id = c.lastrowid
     conn.close()
-    
     return jsonify({'id': new_id, 'success': True})
 
 @app.route('/api/portfolio/<int:portfolio_id>', methods=['DELETE'])
@@ -101,21 +109,20 @@ def delete_portfolio(portfolio_id):
     conn.execute('DELETE FROM portfolio WHERE id = ?', (portfolio_id,))
     conn.commit()
     conn.close()
-    
     return jsonify({'success': True})
 
 @app.route('/api/portfolio/<int:portfolio_id>', methods=['PUT'])
 def update_portfolio(portfolio_id):
     data = request.json
+    fees = data.get('fees', 0) or 0
     conn = get_db_connection()
     conn.execute('''UPDATE portfolio
-                    SET name=?, isin=?, amount=?, priceUSD=?, rate=?, date=?, totalCHF=?, ticker=?
+                    SET name=?, isin=?, amount=?, priceUSD=?, rate=?, date=?, totalCHF=?, ticker=?, fees=?
                     WHERE id=?''',
                  (data['name'], data['isin'], data['amount'], data['priceUSD'],
-                  data['rate'], data['date'], data['totalCHF'], data['ticker'], portfolio_id))
+                  data['rate'], data['date'], data['totalCHF'], data['ticker'], fees, portfolio_id))
     conn.commit()
     conn.close()
-    
     return jsonify({'success': True})
 
 @app.route('/api/cash', methods=['GET'])
@@ -132,7 +139,6 @@ def set_cash():
     conn.execute('UPDATE cash SET balance = ? WHERE id = 1', (data['balance'],))
     conn.commit()
     conn.close()
-    
     return jsonify({'success': True})
 
 # --- STATISCHE DATEIEN ---
