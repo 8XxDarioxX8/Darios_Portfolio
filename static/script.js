@@ -19,6 +19,21 @@ let currentPerfData = null;
 // ─── INIT ────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Auth-Check
+    try {
+        const res = await fetch('/api/me', { credentials: 'include' });
+        if (!res.ok) { window.location.href = '/login.html'; return; }
+        const user = await res.json();
+        const initials = user.username.slice(0, 2).toUpperCase();
+        const el = document.getElementById('user-avatar');
+        const nm = document.getElementById('user-name');
+        if (el) el.textContent = initials;
+        if (nm) nm.textContent = user.username;
+    } catch (e) {
+        window.location.href = '/login.html';
+        return;
+    }
+
     setGreeting();
     await loadDataFromServer();
     renderPortfolio();
@@ -39,8 +54,8 @@ function setGreeting() {
 async function loadDataFromServer() {
     try {
         const [portRes, cashRes] = await Promise.all([
-            fetch('/api/portfolio'),
-            fetch('/api/cash')
+            fetch('/api/portfolio', { credentials: 'include' }),
+            fetch('/api/cash', { credentials: 'include' })
         ]);
         portfolio   = await portRes.json();
         const cd    = await cashRes.json();
@@ -48,6 +63,11 @@ async function loadDataFromServer() {
     } catch (e) {
         console.error('Fehler beim Laden:', e);
     }
+}
+
+async function doLogout() {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+    window.location.href = '/login.html';
 }
 
 // ─── PAGE NAVIGATION ─────────────────────────────────────
@@ -899,7 +919,7 @@ async function calculate() {
     }
 
     const totalCHF  = amount * (isNaN(price) ? 0 : price) * (isNaN(rate) ? 1 : rate);
-    const totalFees = totalCHF * 0.0015; // Stempelgebühr 0.15%
+    const totalFees = totalCHF * 0.00075; // Stempelgebühr 0.075%
 
     const item = {
         name, isin, amount,
@@ -912,7 +932,7 @@ async function calculate() {
     };
 
     try {
-        const res = await fetch('/api/portfolio', {
+        const res = await fetch('/api/portfolio', { credentials: 'include',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(item)
@@ -929,7 +949,7 @@ async function calculate() {
 async function deleteBuy(dbId) {
     if (!confirm('Diesen Eintrag wirklich löschen?')) return;
     try {
-        await fetch(`/api/portfolio/${dbId}`, { method: 'DELETE' });
+        await fetch(`/api/portfolio/${dbId}`, { method: 'DELETE', credentials: 'include' });
         await loadDataFromServer();
         renderPortfolio();
     } catch (e) {
@@ -961,11 +981,11 @@ async function saveEdit() {
     const price  = parseFloat(document.getElementById('edit-price')?.value) || 0;
     const rate   = parseFloat(document.getElementById('edit-rate')?.value)  || 1;
     const date   = document.getElementById('edit-date')?.value;
-    const fees    = amount * price * rate * 0.0015; // Stempelgebühr 0.15%
+    const fees    = amount * price * rate * 0.00075; // Stempelgebühr 0.075%
     const updated = { ...item, name, isin, amount, priceUSD: price, rate, date, totalCHF: amount * price * rate, fees };
 
     try {
-        await fetch(`/api/portfolio/${dbId}`, {
+        await fetch(`/api/portfolio/${dbId}`, { credentials: 'include',
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updated)
@@ -983,7 +1003,7 @@ async function editCash() {
     if (n === null) return;
     cashBalance = parseFloat(n) || 0;
     try {
-        await fetch('/api/cash', {
+        await fetch('/api/cash', { credentials: 'include',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ balance: cashBalance })
