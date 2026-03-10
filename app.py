@@ -48,10 +48,6 @@ def init_db():
                  (user_id INTEGER PRIMARY KEY,
                   balance REAL DEFAULT 0)''')
 
-    c.execute('''CREATE TABLE IF NOT EXISTS cash
-             (user_id INTEGER PRIMARY KEY,
-              balance REAL DEFAULT 0)''')
-
     conn.commit()
     conn.close()
 
