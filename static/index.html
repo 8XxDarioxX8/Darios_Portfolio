@@ -54,6 +54,9 @@
                 <button onclick="doLogout()" style="width:100%;margin-top:8px;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px;font-size:12px;color:var(--text2);cursor:pointer;font-family:var(--body);transition:all 0.15s;">
                     Abmelden
                 </button>
+                <button onclick="doDeleteAccount()" style="width:100%;margin-top:6px;background:none;border:1px solid var(--red-soft);border-radius:var(--radius-sm);padding:7px;font-size:12px;color:var(--red);cursor:pointer;font-family:var(--body);transition:all 0.15s;">
+                    Konto löschen
+                </button>
             </div>
         </nav>
 
@@ -109,7 +112,9 @@
                                         <button onclick="updateTimeFilter(365)">1J</button>
                                         <button class="active" onclick="updateTimeFilter('all')">ALL</button>
                                     </div>
-                                    <div class="chart-return-badge" id="chart-return-badge" style="display:none"></div>
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <div class="chart-return-badge" id="chart-return-badge" style="display:none"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -195,16 +200,35 @@
             </div>
             <div class="modal-body">
                 <div class="form-row">
-                    <div class="form-field"><label>Asset Name</label><input type="text" id="asset-name" placeholder="z.B. MSCI World"></div>
-                    <div class="form-field"><label>ISIN</label><input type="text" id="isin" placeholder="z.B. IE00B4L5Y983"></div>
+                    <div class="form-field" style="position:relative">
+                        <label>Ticker <span style="font-size:9px;color:var(--text3)">(Yahoo Finance)</span></label>
+                        <input type="text" id="ticker" placeholder="Suchen: z.B. Novartis, AAPL…" autocomplete="off" oninput="searchTicker(this.value)">
+                        <div id="ticker-dropdown" class="ticker-dropdown" style="display:none"></div>
+                    </div>
+                    <div class="form-field"><label>Asset Name</label><input type="text" id="asset-name" placeholder="Wird automatisch gefüllt"></div>
+                    <div class="form-field"><label>ISIN</label><input type="text" id="isin" placeholder="z.B. CH0012221716"></div>
                 </div>
                 <div class="form-row">
+                    <div class="form-field">
+                        <label>Währung</label>
+                        <select id="currency" onchange="updateCurrencyFields()" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:13px;padding:8px 11px;width:100%;">
+                            <option value="CHF">CHF</option>
+                            <option value="USD" selected>USD</option>
+                            <option value="EUR">EUR</option>
+                            <option value="GBP">GBP</option>
+                            <option value="JPY">JPY</option>
+                            <option value="CAD">CAD</option>
+                            <option value="AUD">AUD</option>
+                        </select>
+                    </div>
                     <div class="form-field"><label>Anzahl Stück</label><input type="number" id="amount" placeholder="0.00" step="any"></div>
-                    <div class="form-field"><label>Preis (USD)</label><input type="number" id="price" placeholder="0.00" step="any"></div>
-                    <div class="form-field"><label>Kurs USD/CHF</label><input type="number" id="exchange-rate" placeholder="0.00" step="any"></div>
+                    <div class="form-field"><label>Kurs (<span id="price-label">USD</span>)</label><input type="number" id="price" placeholder="0.00" step="any"></div>
+                    <div class="form-field" id="rate-field"><label>Kurs <span id="rate-label">USD</span>/CHF</label><input type="number" id="exchange-rate" placeholder="0.00" step="any"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="purchase-date"></div>
+                    <div class="form-field"><label>Stempelsteuer (CHF)</label><input type="number" id="fee-stamp" placeholder="0.00" step="any"></div>
+                    <div class="form-field"><label>Sonstige Kosten (CHF)</label><input type="number" id="fee-other" placeholder="0.00" step="any"></div>
                 </div>
                 <div id="transaction-preview" class="transaction-preview" style="display:none;">
                     <span class="preview-label">Total CHF</span>
@@ -227,14 +251,29 @@
                 <div class="form-row">
                     <div class="form-field"><label>Asset Name</label><input type="text" id="edit-asset-name"></div>
                     <div class="form-field"><label>ISIN</label><input type="text" id="edit-isin"></div>
+                    <div class="form-field"><label>Ticker <span style="font-size:9px;color:var(--text3)">(Yahoo Finance)</span></label><input type="text" id="edit-ticker"></div>
                 </div>
                 <div class="form-row">
+                    <div class="form-field">
+                        <label>Währung</label>
+                        <select id="edit-currency" onchange="updateEditCurrencyFields()" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:13px;padding:8px 11px;width:100%;">
+                            <option value="CHF">CHF</option>
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                            <option value="GBP">GBP</option>
+                            <option value="JPY">JPY</option>
+                            <option value="CAD">CAD</option>
+                            <option value="AUD">AUD</option>
+                        </select>
+                    </div>
                     <div class="form-field"><label>Anzahl Stück</label><input type="number" id="edit-amount" step="any"></div>
-                    <div class="form-field"><label>Preis (USD)</label><input type="number" id="edit-price" step="any"></div>
-                    <div class="form-field"><label>Kurs USD/CHF</label><input type="number" id="edit-rate" step="any"></div>
+                    <div class="form-field"><label>Kurs (<span id="edit-price-label">USD</span>)</label><input type="number" id="edit-price" step="any"></div>
+                    <div class="form-field" id="edit-rate-field"><label>Kurs <span id="edit-rate-label">USD</span>/CHF</label><input type="number" id="edit-rate" step="any"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="edit-date"></div>
+                    <div class="form-field"><label>Stempelsteuer (CHF)</label><input type="number" id="edit-fee-stamp" step="any" placeholder="0.00"></div>
+                    <div class="form-field"><label>Sonstige Kosten (CHF)</label><input type="number" id="edit-fee-other" step="any" placeholder="0.00"></div>
                 </div>
                 <button class="btn-save" onclick="saveEdit()">Änderungen speichern</button>
             </div>

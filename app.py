@@ -34,10 +34,13 @@ def init_db():
                   user_id INTEGER NOT NULL DEFAULT 1,
                   name TEXT, isin TEXT, amount REAL, priceUSD REAL,
                   rate REAL, date TEXT, totalCHF REAL, ticker TEXT,
-                  fees REAL DEFAULT 0)''')
+                  fees REAL DEFAULT 0, fee_stamp REAL DEFAULT 0,
+                  fee_other REAL DEFAULT 0, currency TEXT DEFAULT "USD")''')
 
     # Migrations
-    for col in ['user_id INTEGER DEFAULT 1', 'fees REAL DEFAULT 0']:
+    for col in ['user_id INTEGER DEFAULT 1', 'fees REAL DEFAULT 0',
+                'currency TEXT DEFAULT "USD"', 'fee_stamp REAL DEFAULT 0',
+                'fee_other REAL DEFAULT 0']:
         try:
             c.execute(f'ALTER TABLE portfolio ADD COLUMN {col}')
         except sqlite3.OperationalError:
@@ -47,6 +50,12 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS cash
                  (user_id INTEGER PRIMARY KEY,
                   balance REAL DEFAULT 0)''')
+
+    # Alte cash Tabelle migration (falls id-basiert)
+    try:
+        c.execute('ALTER TABLE cash ADD COLUMN user_id INTEGER')
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -110,12 +119,68 @@ def logout():
     session.clear()
     return jsonify({'success': True})
 
+
+@app.route('/api/delete-account', methods=['DELETE'])
+def delete_account():
+    user_id = require_login()
+    if not user_id:
+        return jsonify({'error': 'Nicht eingeloggt'}), 401
+    conn = get_db_connection()
+    conn.execute('DELETE FROM portfolio WHERE user_id = ?', (user_id,))
+    conn.execute('DELETE FROM cash WHERE user_id = ?', (user_id,))
+    conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    session.clear()
+    return jsonify({'success': True})
+
 @app.route('/api/me')
 def me():
     user_id = require_login()
     if not user_id:
         return jsonify({'logged_in': False}), 401
     return jsonify({'logged_in': True, 'username': session.get('username'), 'user_id': user_id})
+
+# ── TICKER SUCHE ─────────────────────────────────────────
+
+@app.route('/api/search_ticker')
+def search_ticker():
+    if not require_login():
+        return jsonify({'error': 'Nicht eingeloggt'}), 401
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 2:
+        return jsonify([])
+    try:
+        # ISIN-Erkennung: 2 Buchstaben + 10 alphanumerische Zeichen
+        import re
+        is_isin = bool(re.match(r'^[A-Z]{2}[A-Z0-9]{9}[0-9]$', query.upper()))
+
+        if is_isin:
+            # Bei ISIN: direkt yfinance nach dem Symbol suchen
+            # yfinance Search unterstützt ISIN-Suche
+            results = yf.Search(query.upper(), max_results=8)
+        else:
+            results = yf.Search(query, max_results=8)
+
+        quotes = results.quotes or []
+        out = []
+        for q in quotes:
+            symbol = q.get('symbol', '')
+            name   = q.get('longname') or q.get('shortname') or ''
+            exch   = q.get('exchDisp') or q.get('exchange') or ''
+            qtype  = q.get('quoteType', '')
+            isin   = q.get('isin', '')
+            if symbol and name and qtype in ('EQUITY', 'ETF', 'MUTUALFUND', 'INDEX'):
+                out.append({
+                    'symbol':   symbol,
+                    'name':     name,
+                    'exchange': exch,
+                    'type':     qtype,
+                    'isin':     isin
+                })
+        return jsonify(out[:8])
+    except Exception as e:
+        return jsonify([])
 
 # ── HISTORY ──────────────────────────────────────────────
 
@@ -165,10 +230,11 @@ def add_portfolio():
     data = request.json
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''INSERT INTO portfolio (user_id, name, isin, amount, priceUSD, rate, date, totalCHF, ticker, fees)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+    c.execute('''INSERT INTO portfolio (user_id, name, isin, amount, priceUSD, rate, date, totalCHF, ticker, fee_stamp, fee_other, currency)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
               (user_id, data['name'], data['isin'], data['amount'], data['priceUSD'],
-               data['rate'], data['date'], data['totalCHF'], data['ticker'], data.get('fees', 0)))
+               data['rate'], data['date'], data['totalCHF'], data['ticker'],
+               data.get('fee_stamp', 0), data.get('fee_other', 0), data.get('currency', 'USD')))
     conn.commit()
     new_id = c.lastrowid
     conn.close()
@@ -190,11 +256,12 @@ def update_portfolio(portfolio_id):
     if not user_id: return jsonify({'error': 'Nicht eingeloggt'}), 401
     data = request.json
     conn = get_db_connection()
-    conn.execute('''UPDATE portfolio SET name=?, isin=?, amount=?, priceUSD=?, rate=?, date=?, totalCHF=?, ticker=?, fees=?
+    conn.execute('''UPDATE portfolio SET name=?, isin=?, amount=?, priceUSD=?, rate=?, date=?, totalCHF=?, ticker=?, fee_stamp=?, fee_other=?, currency=?
                     WHERE id=? AND user_id=?''',
                  (data['name'], data['isin'], data['amount'], data['priceUSD'],
                   data['rate'], data['date'], data['totalCHF'], data['ticker'],
-                  data.get('fees', 0), portfolio_id, user_id))
+                  data.get('fee_stamp', 0), data.get('fee_other', 0),
+                  data.get('currency', 'USD'), portfolio_id, user_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
