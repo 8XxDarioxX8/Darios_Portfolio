@@ -241,6 +241,14 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    // Token für Multi-Profile speichern
+                    if (data.token) {
+                        const profiles = JSON.parse(localStorage.getItem('dario_profiles') || '[]');
+                        if (!profiles.find(p => p.userId === data.user_id)) {
+                            profiles.push({ username: data.username, token: data.token, userId: data.user_id });
+                            localStorage.setItem('dario_profiles', JSON.stringify(profiles));
+                        }
+                    }
                     window.location.href = '/';
                 } else {
                     showError('login-error', data.error || 'Fehler beim Anmelden');
@@ -268,6 +276,13 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    if (data.token) {
+                        const profiles = JSON.parse(localStorage.getItem('dario_profiles') || '[]');
+                        if (!profiles.find(p => p.userId === data.user_id)) {
+                            profiles.push({ username: data.username, token: data.token, userId: data.user_id });
+                            localStorage.setItem('dario_profiles', JSON.stringify(profiles));
+                        }
+                    }
                     window.location.href = '/';
                 } else {
                     showError('register-error', data.error || 'Fehler bei der Registrierung');

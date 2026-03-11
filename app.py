@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import yfinance as yf
 import sqlite3
 import os
+import secrets
 
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-in-production')
@@ -46,7 +47,11 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-    # Cash Tabelle mit user_id
+    # Auth Tokens für Multi-Profile
+    c.execute('''CREATE TABLE IF NOT EXISTS auth_tokens
+                 (token TEXT PRIMARY KEY,
+                  user_id INTEGER NOT NULL,
+                  created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS cash
                  (user_id INTEGER PRIMARY KEY,
                   balance REAL DEFAULT 0)''')
@@ -63,7 +68,18 @@ def init_db():
 init_db()
 
 def require_login():
-    return session.get('user_id')
+    # Cookie-Session (Standard)
+    if session.get('user_id'):
+        return session.get('user_id')
+    # Token-Auth (für Multi-Profile)
+    token = request.headers.get('X-Auth-Token') or request.args.get('token')
+    if token:
+        conn = get_db_connection()
+        row = conn.execute('SELECT user_id FROM auth_tokens WHERE token = ?', (token,)).fetchone()
+        conn.close()
+        if row:
+            return row['user_id']
+    return None
 
 # ── AUTH ─────────────────────────────────────────────────
 
@@ -95,7 +111,11 @@ def register():
 
     session['user_id'] = user_id
     session['username'] = username
-    return jsonify({'success': True, 'username': username})
+    token = secrets.token_hex(32)
+    c.execute('INSERT OR REPLACE INTO auth_tokens (token, user_id) VALUES (?, ?)', (token, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'username': username, 'token': token, 'user_id': user_id})
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -112,7 +132,30 @@ def login():
 
     session['user_id'] = user['id']
     session['username'] = user['username']
-    return jsonify({'success': True, 'username': user['username']})
+    # Token für Multi-Profile generieren
+    token = secrets.token_hex(32)
+    conn2 = get_db_connection()
+    conn2.execute('INSERT OR REPLACE INTO auth_tokens (token, user_id) VALUES (?, ?)', (token, user['id']))
+    conn2.commit()
+    conn2.close()
+    return jsonify({'success': True, 'username': user['username'], 'token': token, 'user_id': user['id']})
+
+@app.route('/api/token-login', methods=['POST'])
+def token_login():
+    """Wechselt aktive Session zu einem gespeicherten Token (für Multi-Profile)"""
+    data = request.json
+    token = data.get('token', '')
+    conn = get_db_connection()
+    row = conn.execute(
+        'SELECT auth_tokens.user_id, users.username FROM auth_tokens JOIN users ON auth_tokens.user_id = users.id WHERE auth_tokens.token = ?',
+        (token,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Ungültiger Token'}), 401
+    session['user_id'] = row['user_id']
+    session['username'] = row['username']
+    return jsonify({'success': True, 'username': row['username'], 'user_id': row['user_id']})
 
 @app.route('/api/logout', methods=['POST'])
 def logout():

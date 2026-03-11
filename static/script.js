@@ -93,6 +93,134 @@ function iBtn(key) {
     return `<span class="info-btn" onmouseenter="showTooltip(event,'${key}')" onmousemove="positionTooltip(event)" onmouseleave="hideTooltip()">i</span>`;
 }
 
+// ─── MULTI-PROFILE ───────────────────────────────────────
+
+const PROFILES_KEY = 'dario_profiles';
+
+function getProfiles() {
+    try { return JSON.parse(localStorage.getItem(PROFILES_KEY) || '[]'); }
+    catch { return []; }
+}
+
+function saveProfiles(profiles) {
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+}
+
+function addProfile(username, token, userId) {
+    const profiles = getProfiles();
+    // Kein Duplikat
+    if (!profiles.find(p => p.userId === userId)) {
+        profiles.push({ username, token, userId });
+        saveProfiles(profiles);
+    }
+    renderProfileStrip();
+}
+
+function removeProfile(userId) {
+    const profiles = getProfiles().filter(p => p.userId !== userId);
+    saveProfiles(profiles);
+    renderProfileStrip();
+}
+
+function renderProfileStrip() {
+    const strip = document.getElementById('profile-strip');
+    if (!strip) return;
+    const profiles = getProfiles();
+    if (profiles.length <= 1) { strip.innerHTML = ''; return; }
+
+    const currentId = window._currentUserId;
+    strip.innerHTML = profiles.map(p => {
+        const initials = p.username.slice(0, 2).toUpperCase();
+        const isActive = p.userId === currentId;
+        return `<div class="profile-avatar ${isActive ? 'active' : ''}"
+                     onclick="switchProfile(${p.userId})"
+                     title="${p.username}">
+                    ${initials}
+                    <span class="profile-tooltip">${p.username}</span>
+                </div>`;
+    }).join('') +
+    `<div class="profile-add-btn" onclick="openProfileModal()" title="Profil hinzufügen">+</div>`;
+}
+
+async function switchProfile(userId) {
+    const profiles = getProfiles();
+    const profile = profiles.find(p => p.userId === userId);
+    if (!profile) return;
+    try {
+        const res = await fetch('/api/token-login', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: profile.token })
+        });
+        if (!res.ok) {
+            // Token abgelaufen — Profil entfernen
+            removeProfile(userId);
+            alert(`Session für "${profile.username}" abgelaufen. Bitte erneut einloggen.`);
+            return;
+        }
+        const data = await res.json();
+        window._currentUserId = userId;
+        // UI updaten
+        const el = document.getElementById('user-avatar');
+        const nm = document.getElementById('user-name');
+        if (el) el.textContent = data.username.slice(0, 2).toUpperCase();
+        if (nm) nm.textContent = data.username;
+        renderProfileStrip();
+        // Daten neu laden
+        await loadDataFromServer();
+        renderPortfolio();
+        showPage('page-dashboard');
+    } catch(e) {
+        alert('Fehler beim Profilwechsel.');
+    }
+}
+
+function openProfileModal() {
+    const overlay = document.getElementById('profile-modal-overlay');
+    if (overlay) {
+        overlay.classList.add('open');
+        document.getElementById('profile-login-user')?.focus();
+        document.getElementById('profile-login-error').textContent = '';
+    }
+}
+
+function closeProfileModal() {
+    document.getElementById('profile-modal-overlay')?.classList.remove('open');
+    ['profile-login-user','profile-login-pass'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
+async function profileLogin() {
+    const username = document.getElementById('profile-login-user')?.value?.trim().toLowerCase();
+    const password = document.getElementById('profile-login-pass')?.value;
+    const errEl    = document.getElementById('profile-login-error');
+    if (!username || !password) { errEl.textContent = 'Bitte alle Felder ausfüllen.'; return; }
+
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) { errEl.textContent = data.error || 'Fehler beim Login.'; return; }
+
+        addProfile(data.username, data.token, data.user_id);
+        closeProfileModal();
+        // Sofort zu neuem Profil wechseln? Nein — nur hinzufügen
+        // Kleines Feedback
+        const strip = document.getElementById('profile-strip');
+        if (strip) {
+            strip.style.background = 'var(--accent-bg)';
+            setTimeout(() => strip.style.background = '', 600);
+        }
+    } catch(e) {
+        document.getElementById('profile-login-error').textContent = 'Verbindungsfehler.';
+    }
+}
+
 // ─── INIT ────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -106,12 +234,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const nm = document.getElementById('user-name');
         if (el) el.textContent = initials;
         if (nm) nm.textContent = user.username;
+        window._currentUserId = user.user_id;
     } catch (e) {
         window.location.href = '/login.html';
         return;
     }
 
     setGreeting();
+    renderProfileStrip();
     await loadDataFromServer();
     renderPortfolio();
     showPage('page-dashboard');

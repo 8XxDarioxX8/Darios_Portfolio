@@ -44,6 +44,8 @@
                 </nav>
             </div>
             <div class="sidebar-bottom">
+                <!-- Profil-Leiste -->
+                <div class="profile-strip" id="profile-strip"></div>
                 <div class="sidebar-user">
                     <div class="user-avatar" id="user-avatar">—</div>
                     <div class="user-info">
@@ -281,5 +283,19 @@
     </div>
 
     <script src="script.js"></script>
+
+    <!-- Profil Login Modal -->
+    <div id="profile-modal-overlay" class="profile-modal-overlay" onclick="if(event.target===this)closeProfileModal()">
+        <div class="profile-modal-box">
+            <h3>Profil hinzufügen</h3>
+            <input type="text"     id="profile-login-user" placeholder="Benutzername" onkeydown="if(event.key==='Enter')profileLogin()">
+            <input type="password" id="profile-login-pass" placeholder="Passwort"     onkeydown="if(event.key==='Enter')profileLogin()">
+            <div class="profile-modal-error" id="profile-login-error"></div>
+            <div class="profile-modal-btns">
+                <button class="btn-profile-cancel" onclick="closeProfileModal()">Abbrechen</button>
+                <button class="btn-profile-login"  onclick="profileLogin()">Einloggen</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
