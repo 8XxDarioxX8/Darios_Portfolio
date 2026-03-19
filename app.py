@@ -22,14 +22,12 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Users Tabelle
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   username TEXT UNIQUE NOT NULL,
                   password_hash TEXT NOT NULL,
                   created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
 
-    # Portfolio Tabelle mit user_id
     c.execute('''CREATE TABLE IF NOT EXISTS portfolio
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER NOT NULL DEFAULT 1,
@@ -38,7 +36,6 @@ def init_db():
                   fees REAL DEFAULT 0, fee_stamp REAL DEFAULT 0,
                   fee_other REAL DEFAULT 0, currency TEXT DEFAULT "USD")''')
 
-    # Migrations
     for col in ['user_id INTEGER DEFAULT 1', 'fees REAL DEFAULT 0',
                 'currency TEXT DEFAULT "USD"', 'fee_stamp REAL DEFAULT 0',
                 'fee_other REAL DEFAULT 0']:
@@ -47,7 +44,6 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-    # Auth Tokens für Multi-Profile
     c.execute('''CREATE TABLE IF NOT EXISTS auth_tokens
                  (token TEXT PRIMARY KEY,
                   user_id INTEGER NOT NULL,
@@ -56,7 +52,6 @@ def init_db():
                  (user_id INTEGER PRIMARY KEY,
                   balance REAL DEFAULT 0)''')
 
-    # Alte cash Tabelle migration (falls id-basiert)
     try:
         c.execute('ALTER TABLE cash ADD COLUMN user_id INTEGER')
     except sqlite3.OperationalError:
@@ -68,10 +63,8 @@ def init_db():
 init_db()
 
 def require_login():
-    # Cookie-Session (Standard)
     if session.get('user_id'):
         return session.get('user_id')
-    # Token-Auth (für Multi-Profile)
     token = request.headers.get('X-Auth-Token') or request.args.get('token')
     if token:
         conn = get_db_connection()
@@ -107,7 +100,6 @@ def register():
     user_id = c.lastrowid
     c.execute('INSERT OR IGNORE INTO cash (user_id, balance) VALUES (?, 0)', (user_id,))
     conn.commit()
-    conn.close()
 
     session['user_id'] = user_id
     session['username'] = username
@@ -132,7 +124,6 @@ def login():
 
     session['user_id'] = user['id']
     session['username'] = user['username']
-    # Token für Multi-Profile generieren
     token = secrets.token_hex(32)
     conn2 = get_db_connection()
     conn2.execute('INSERT OR REPLACE INTO auth_tokens (token, user_id) VALUES (?, ?)', (token, user['id']))
@@ -142,7 +133,6 @@ def login():
 
 @app.route('/api/token-login', methods=['POST'])
 def token_login():
-    """Wechselt aktive Session zu einem gespeicherten Token (für Multi-Profile)"""
     data = request.json
     token = data.get('token', '')
     conn = get_db_connection()
@@ -161,7 +151,6 @@ def token_login():
 def logout():
     session.clear()
     return jsonify({'success': True})
-
 
 @app.route('/api/delete-account', methods=['DELETE'])
 def delete_account():
@@ -194,13 +183,9 @@ def search_ticker():
     if not query or len(query) < 2:
         return jsonify([])
     try:
-        # ISIN-Erkennung: 2 Buchstaben + 10 alphanumerische Zeichen
         import re
         is_isin = bool(re.match(r'^[A-Z]{2}[A-Z0-9]{9}[0-9]$', query.upper()))
-
         if is_isin:
-            # Bei ISIN: direkt yfinance nach dem Symbol suchen
-            # yfinance Search unterstützt ISIN-Suche
             results = yf.Search(query.upper(), max_results=8)
         else:
             results = yf.Search(query, max_results=8)
@@ -239,8 +224,24 @@ def get_history():
         ticker = yf.Ticker(symbol)
         interval = '15m' if period in ['1d', '5d'] else '1d'
         data = ticker.history(period=period, interval=interval)
+
+        # Fallback 1: Intraday → Tagesdaten (SIX-Ticker, .SW etc.)
+        if data.empty and interval == '15m':
+            interval = '1d'
+            data = ticker.history(period=period, interval=interval)
+
+        # Fallback 2: 0P-Ticker (Morningstar) unterstützen oft nur bestimmte Perioden
+        if data.empty:
+            for fallback_period in ['max', '5y', '2y', '1y']:
+                if fallback_period == period:
+                    continue
+                data = ticker.history(period=fallback_period, interval='1d')
+                if not data.empty:
+                    break
+
         if data.empty:
             return jsonify({"error": "Keine Daten"}), 404
+
         history = []
         for date, row in data.iterrows():
             if interval == '15m':

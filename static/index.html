@@ -9,7 +9,7 @@
     <link rel="apple-touch-icon" href="favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -32,19 +32,36 @@
                     </div>
                 </div>
                 <nav class="sidebar-nav">
-                    <a class="nav-item active" id="nav-dashboard" onclick="showPage('page-dashboard')">
+                    <a class="nav-item active" onclick="showPage('page-dashboard')">
                         <span class="nav-icon">▦</span>Dashboard
                     </a>
-                    <a class="nav-item" id="nav-investments" onclick="showPage('page-investments')">
+                    <a class="nav-item" onclick="showPage('page-investments')">
                         <span class="nav-icon">◈</span>Investments
                     </a>
-                    <a class="nav-item" id="nav-analysis" onclick="showPage('page-analysis')">
+                    <a class="nav-item" onclick="showPage('page-analysis')">
                         <span class="nav-icon">◎</span>Analyse
                     </a>
                 </nav>
             </div>
             <div class="sidebar-bottom">
-                <!-- Profil-Leiste -->
+                <!-- Theme Switcher -->
+                <div class="theme-switcher">
+                    <span class="theme-label">Design</span>
+                    <button class="theme-btn active" onclick="setTheme('hell', this)" title="Hell">
+                        <div class="theme-dot" style="background:linear-gradient(135deg,#5B8DEF,#A9C9FF)"></div>
+                        Hell
+                    </button>
+                    <button class="theme-btn" onclick="setTheme('dunkel', this)" title="Dunkel">
+                        <div class="theme-dot" style="background:linear-gradient(135deg,#1A1D27,#6B9FFF)"></div>
+                        Dunkel
+                    </button>
+                    <button class="theme-btn" onclick="setTheme('girl', this)" title="Girl">
+                        <div class="theme-dot" style="background:linear-gradient(135deg,#E05C8A,#C9A9FF)"></div>
+                        Girl
+                    </button>
+
+                </div>
+
                 <div class="profile-strip" id="profile-strip"></div>
                 <div class="sidebar-user">
                     <div class="user-avatar" id="user-avatar">—</div>
@@ -53,12 +70,8 @@
                         <span class="user-status"><span class="status-dot"></span>Live</span>
                     </div>
                 </div>
-                <button onclick="doLogout()" style="width:100%;margin-top:8px;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px;font-size:12px;color:var(--text2);cursor:pointer;font-family:var(--body);transition:all 0.15s;">
-                    Abmelden
-                </button>
-                <button onclick="doDeleteAccount()" style="width:100%;margin-top:6px;background:none;border:1px solid var(--red-soft);border-radius:var(--radius-sm);padding:7px;font-size:12px;color:var(--red);cursor:pointer;font-family:var(--body);transition:all 0.15s;">
-                    Konto löschen
-                </button>
+                <button onclick="doLogout()" style="width:100%;margin-top:8px;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px;font-size:12px;color:var(--text2);cursor:pointer;font-family:var(--body);transition:all 0.15s;">Abmelden</button>
+                <button onclick="doDeleteAccount()" style="width:100%;margin-top:6px;background:none;border:1px solid var(--red-soft);border-radius:var(--radius-sm);padding:7px;font-size:12px;color:var(--red);cursor:pointer;font-family:var(--body);transition:all 0.15s;">Konto löschen</button>
             </div>
         </nav>
 
@@ -79,44 +92,64 @@
 
                 <div class="page-content">
                     <div class="dashboard-top">
-                        <!-- Donut -->
                         <div class="card panel-donut">
                             <div class="card-head"><span class="card-label">Verteilung</span></div>
                             <div class="card-body">
                                 <div class="donut-wrap">
-                                    <canvas id="portfolioChart"></canvas>
+                                    <canvas id="myDonutChart"></canvas>
                                     <div class="donut-center" id="donut-center-text">—</div>
                                 </div>
                                 <div id="donut-legend" class="donut-legend"></div>
                             </div>
                         </div>
-
-                        <!-- Performance -->
-                        <div class="card panel-performance" id="performance-display">
-                            <div class="card-head"><span class="card-label">Performance</span></div>
-                            <div class="card-body">
-                                <div class="perf-loading">Lade Daten…</div>
+                        <div class="card panel-perf">
+                            <div id="performance-display">
+                                <div class="card-head"><span class="card-label">Performance</span></div>
+                                <div class="card-body" style="text-align:center;padding:32px;font-size:11px;color:var(--text3);font-family:'DM Mono',monospace">Lade…</div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Line Chart -->
+                    <!-- KPI Strip 3 Kacheln -->
+                    <div class="kpi-strip" style="grid-template-columns:repeat(3,1fr)">
+                        <div class="kpi-tile">
+                            <span class="kpi-label">Gesamtwert</span>
+                            <div class="kpi-val-row">
+                                <span class="kpi-value" id="kpi-total">—</span>
+                                <span class="kpi-currency">CHF</span>
+                            </div>
+                        </div>
+                        <div class="kpi-tile">
+                            <span class="kpi-label">Investiert</span>
+                            <div class="kpi-val-row">
+                                <span class="kpi-value" id="kpi-invested">—</span>
+                                <span class="kpi-currency">CHF</span>
+                            </div>
+                        </div>
+                        <div class="kpi-tile">
+                            <span class="kpi-label">Gewinn / Verlust</span>
+                            <div class="kpi-val-row">
+                                <span class="kpi-value" id="kpi-gain">—</span>
+                                <span class="kpi-badge" id="kpi-gain-badge">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chart -->
                     <div class="card">
                         <div class="card-head">
                             <div class="chart-toolbar">
-                                <span class="card-label">Vermögensverlauf</span>
-                                <div style="display:flex; align-items:center; gap:14px; margin-left:auto;">
-                                    <div class="time-filters">
-                                        <button onclick="updateTimeFilter(1)">1T</button>
-                                        <button onclick="updateTimeFilter(7)">1W</button>
-                                        <button onclick="updateTimeFilter(30)">1M</button>
-                                        <button onclick="updateTimeFilter('ytd')">YTD</button>
-                                        <button onclick="updateTimeFilter(365)">1J</button>
-                                        <button class="active" onclick="updateTimeFilter('all')">ALL</button>
-                                    </div>
-                                    <div style="display:flex;align-items:center;gap:6px">
-                                        <div class="chart-return-badge" id="chart-return-badge" style="display:none"></div>
-                                    </div>
+                                <div style="display:flex;align-items:center;gap:10px">
+                                    <span class="card-label">Vermögensverlauf</span>
+                                    <span class="chart-return-badge" id="chart-return-badge" style="display:none"></span>
+                                </div>
+                                <div class="time-filters">
+                                    <button onclick="updateTimeFilter(1)">1T</button>
+                                    <button onclick="updateTimeFilter(7)">1W</button>
+                                    <button onclick="updateTimeFilter(30)">1M</button>
+                                    <button onclick="updateTimeFilter('ytd')">YTD</button>
+                                    <button onclick="updateTimeFilter(365)">1J</button>
+                                    <button onclick="updateTimeFilter('all')" class="active">ALL</button>
                                 </div>
                             </div>
                         </div>
@@ -124,9 +157,7 @@
                             <div class="chart-area">
                                 <canvas id="lineChart"></canvas>
                                 <div class="chart-loader" id="chart-loader">
-                                    <div class="loader-bars">
-                                        <span></span><span></span><span></span><span></span><span></span>
-                                    </div>
+                                    <div class="loader-bars"><span></span><span></span><span></span><span></span><span></span></div>
                                 </div>
                             </div>
                         </div>
@@ -137,10 +168,7 @@
             <!-- INVESTMENTS -->
             <section id="page-investments" class="page" style="display:none;">
                 <header class="page-header">
-                    <div>
-                        <h1>Investments</h1>
-                        <p class="header-sub">Alle Positionen im Detail</p>
-                    </div>
+                    <div><h1>Investments</h1><p class="header-sub">Alle Positionen im Detail</p></div>
                 </header>
                 <div class="page-content">
                     <div class="inv-stats-row">
@@ -162,7 +190,7 @@
                     </div>
                     <div class="card">
                         <div class="card-head"><span class="card-label">Positionen</span></div>
-                        <div class="card-body" style="padding: 12px;">
+                        <div class="card-body" style="padding:12px">
                             <div id="positions-list"></div>
                         </div>
                     </div>
@@ -172,12 +200,31 @@
             <!-- ANALYSE -->
             <section id="page-analysis" class="page" style="display:none;">
                 <header class="page-header">
-                    <div>
-                        <h1>Analyse</h1>
-                        <p class="header-sub">Performance-Übersicht & Monatsrenditen</p>
-                    </div>
+                    <div><h1>Analyse</h1><p class="header-sub">Performance-Übersicht & Monatsrenditen</p></div>
                 </header>
                 <div class="page-content">
+
+                    <!-- Perioden KPIs -->
+                    <div class="kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+                        <div class="kpi-tile">
+                            <span class="kpi-label">Heute</span>
+                            <span class="kpi-value" id="pp-1d" style="font-size:18px">—</span>
+                        </div>
+                        <div class="kpi-tile">
+                            <span class="kpi-label">1 Woche</span>
+                            <span class="kpi-value" id="pp-1w" style="font-size:18px">—</span>
+                        </div>
+                        <div class="kpi-tile">
+                            <span class="kpi-label">1 Monat</span>
+                            <span class="kpi-value" id="pp-1m" style="font-size:18px">—</span>
+                        </div>
+                        <div class="kpi-tile">
+                            <span class="kpi-label">1 Jahr</span>
+                            <span class="kpi-value" id="pp-1y" style="font-size:18px">—</span>
+                        </div>
+                    </div>
+
+                    <div id="analysis-chart-container" style="margin-bottom:16px"></div>
                     <div id="asset-overview-container" style="margin-bottom:16px"></div>
                     <div id="heatmap-container"></div>
                 </div>
@@ -213,9 +260,9 @@
                 <div class="form-row">
                     <div class="form-field">
                         <label>Währung</label>
-                        <select id="currency" onchange="updateCurrencyFields()" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:13px;padding:8px 11px;width:100%;">
+                        <select id="currency" onchange="updateCurrencyFields()">
+                            <option value="USD">USD</option>
                             <option value="CHF">CHF</option>
-                            <option value="USD" selected>USD</option>
                             <option value="EUR">EUR</option>
                             <option value="GBP">GBP</option>
                             <option value="JPY">JPY</option>
@@ -223,9 +270,11 @@
                             <option value="AUD">AUD</option>
                         </select>
                     </div>
-                    <div class="form-field"><label>Anzahl Stück</label><input type="number" id="amount" placeholder="0.00" step="any"></div>
-                    <div class="form-field"><label>Kurs (<span id="price-label">USD</span>)</label><input type="number" id="price" placeholder="0.00" step="any"></div>
-                    <div class="form-field" id="rate-field"><label>Kurs <span id="rate-label">USD</span>/CHF</label><input type="number" id="exchange-rate" placeholder="0.00" step="any"></div>
+                    <div class="form-field"><label>Anzahl Stück</label><input type="number" id="amount" placeholder="z.B. 10" step="any"></div>
+                    <div class="form-field"><label id="price-label">Kurs (USD)</label><input type="number" id="price" placeholder="z.B. 150.00" step="any"></div>
+                </div>
+                <div class="form-row" id="rate-field">
+                    <div class="form-field"><label id="rate-label">Wechselkurs (USD/CHF)</label><input type="number" id="exchange-rate" placeholder="z.B. 0.9120" step="any"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="purchase-date"></div>
@@ -253,14 +302,14 @@
                 <div class="form-row">
                     <div class="form-field"><label>Asset Name</label><input type="text" id="edit-asset-name"></div>
                     <div class="form-field"><label>ISIN</label><input type="text" id="edit-isin"></div>
-                    <div class="form-field"><label>Ticker <span style="font-size:9px;color:var(--text3)">(Yahoo Finance)</span></label><input type="text" id="edit-ticker"></div>
+                    <div class="form-field"><label>Ticker</label><input type="text" id="edit-ticker"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-field">
                         <label>Währung</label>
-                        <select id="edit-currency" onchange="updateEditCurrencyFields()" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:13px;padding:8px 11px;width:100%;">
-                            <option value="CHF">CHF</option>
+                        <select id="edit-currency" onchange="updateEditCurrencyFields()">
                             <option value="USD">USD</option>
+                            <option value="CHF">CHF</option>
                             <option value="EUR">EUR</option>
                             <option value="GBP">GBP</option>
                             <option value="JPY">JPY</option>
@@ -269,8 +318,10 @@
                         </select>
                     </div>
                     <div class="form-field"><label>Anzahl Stück</label><input type="number" id="edit-amount" step="any"></div>
-                    <div class="form-field"><label>Kurs (<span id="edit-price-label">USD</span>)</label><input type="number" id="edit-price" step="any"></div>
-                    <div class="form-field" id="edit-rate-field"><label>Kurs <span id="edit-rate-label">USD</span>/CHF</label><input type="number" id="edit-rate" step="any"></div>
+                    <div class="form-field"><label id="edit-price-label">Kurs</label><input type="number" id="edit-price" step="any"></div>
+                </div>
+                <div class="form-row" id="edit-rate-field">
+                    <div class="form-field"><label id="edit-rate-label">Wechselkurs</label><input type="number" id="edit-rate" step="any"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="edit-date"></div>

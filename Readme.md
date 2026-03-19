@@ -6,10 +6,11 @@ A personal investment portfolio tracker built with Flask + SQLite, deployed on R
 
 - **Dashboard** — Live portfolio overview with donut chart, performance box and wealth history chart
 - **Investments** — All positions grouped by ISIN with buy details, editable and deletable
-- **Analyse** — Monthly returns heatmap (last 2 years) + positions overview table
+- **Analyse** — Period performance (1T/1W/1M/1J), indexed comparison chart, positions overview table, monthly returns heatmap
 - **Multi-Currency** — CHF, USD, EUR, GBP, JPY, CAD, AUD with live FX rates via yfinance
-- **Performance Breakdown** — Total gain, stock gain vs. FX gain, fees
-- **TWR Badge** — Time-Weighted Return shown on the chart
+- **Performance Breakdown** — Total gain, stock gain vs. FX gain, fees, TWR badge
+- **Themes** — Hell, Dunkel, Girl — saved in localStorage, charts adapt automatically
+- **Trendline** — Toggle linear regression line in the comparison chart
 - **Live Ticker Search** — Search by name or ISIN, auto-fills ticker + ISIN
 - **Multi-Profile** — Multiple user accounts, switch between profiles in the sidebar
 - **Cash Balance** — Track cash alongside investments
@@ -28,10 +29,7 @@ A personal investment portfolio tracker built with Flask + SQLite, deployed on R
 ## Setup (local)
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run
 python app.py
 ```
 
