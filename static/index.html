@@ -41,7 +41,19 @@
                     <a class="nav-item" onclick="showPage('page-analysis')">
                         <span class="nav-icon">◎</span>Analyse
                     </a>
+                    <a class="nav-item" onclick="showPage('page-rebalancing')">
+                        <span class="nav-icon">⊙</span>Rebalancing
+                    </a>
                 </nav>
+                <div style="margin-top:16px;padding:0 4px;display:flex;flex-direction:column;gap:6px">
+                    <div style="font-size:9px;font-weight:600;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;padding:0 6px;margin-bottom:2px">Export</div>
+                    <button onclick="exportCSV()" class="nav-export-btn">
+                        <span style="font-size:13px">↓</span> CSV
+                    </button>
+                    <button onclick="exportPDF()" class="nav-export-btn nav-export-accent">
+                        <span style="font-size:13px">↓</span> PDF Report
+                    </button>
+                </div>
             </div>
             <div class="sidebar-bottom">
                 <!-- Theme Switcher -->
@@ -227,6 +239,57 @@
                     <div id="analysis-chart-container" style="margin-bottom:16px"></div>
                     <div id="asset-overview-container" style="margin-bottom:16px"></div>
                     <div id="heatmap-container"></div>
+                </div>
+            </section>
+
+            <!-- REBALANCING -->
+            <section id="page-rebalancing" class="page" style="display:none;">
+                <header class="page-header">
+                    <div>
+                        <h1>Rebalancing</h1>
+                        <p class="header-sub">Ziel-Allokation & Export</p>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button onclick="exportCSV()" class="export-btn">
+                            ↓ CSV
+                        </button>
+                        <button onclick="exportPDF()" class="export-btn export-btn-accent">
+                            ↓ PDF
+                        </button>
+                    </div>
+                </header>
+                <div class="page-content">
+
+                    <!-- Ziel-Allokation Editor -->
+                    <div class="card" style="margin-bottom:16px">
+                        <div class="card-head" style="justify-content:space-between">
+                            <span class="card-label">Ziel-Allokation</span>
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span id="target-sum-display" style="font-family:var(--mono);font-size:11px;color:var(--text3)">Total: 0%</span>
+                                <button onclick="saveTargets()" class="export-btn export-btn-accent" style="padding:5px 14px">Speichern</button>
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:16px">
+                            <div id="target-editor"></div>
+                        </div>
+                    </div>
+
+                    <!-- Ist vs. Soll Chart -->
+                    <div class="card" style="margin-bottom:16px">
+                        <div class="card-head"><span class="card-label">Ist vs. Soll</span></div>
+                        <div class="card-body">
+                            <div style="position:relative;height:280px">
+                                <canvas id="rebalancing-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rebalancing Tabelle -->
+                    <div class="card">
+                        <div class="card-head"><span class="card-label">Massnahmen</span></div>
+                        <div id="rebalancing-table" style="overflow-x:auto"></div>
+                    </div>
+
                 </div>
             </section>
 

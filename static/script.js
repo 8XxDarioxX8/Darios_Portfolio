@@ -278,7 +278,7 @@ async function doDeleteAccount() {
 // ─── PAGE NAVIGATION ─────────────────────────────────────
 
 function showPage(pageId) {
-    ['page-dashboard', 'page-investments', 'page-analysis'].forEach(id => {
+    ['page-dashboard', 'page-investments', 'page-analysis', 'page-rebalancing'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = id === pageId ? 'block' : 'none';
     });
@@ -296,6 +296,8 @@ function showPage(pageId) {
         loadHeatmap();
     } else if (pageId === 'page-investments') {
         renderPortfolio();
+    } else if (pageId === 'page-rebalancing') {
+        loadRebalancingPage();
     }
     if (window.innerWidth <= 768) closeMobileSidebar();
 }
@@ -1309,4 +1311,260 @@ function getOrCreateOverlay() {
 function setEl(id, val) {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
+}
+
+// ─── REBALANCING ──────────────────────────────────────────
+
+let _targets       = [];   // [{isin, name, target_pct}]
+let _rebChart      = null;
+let _currentPrices = {};   // {isin: currentValueCHF}
+
+async function loadRebalancingPage() {
+    // Ziel-Allokationen laden
+    try {
+        const res = await fetch('/api/targets', { credentials: 'include' });
+        _targets = await res.json();
+    } catch(e) { _targets = []; }
+
+    renderTargetEditor();
+    await computeAndRenderRebalancing();
+}
+
+function renderTargetEditor() {
+    const container = document.getElementById('target-editor');
+    if (!container) return;
+
+    // Alle einzigartigen Positionen aus Portfolio
+    const positions = Object.values(portfolio.reduce((acc, item) => {
+        const key = item.isin || item.name;
+        if (!acc[key]) acc[key] = { name: item.name, isin: item.isin || item.name };
+        return acc;
+    }, {}));
+
+    if (!positions.length) {
+        container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px;font-family:'DM Mono',monospace">Keine Positionen vorhanden</div>`;
+        return;
+    }
+
+    container.innerHTML = positions.map(pos => {
+        const existing = _targets.find(t => t.isin === pos.isin);
+        const pct      = existing ? existing.target_pct : 0;
+        return `
+            <div class="target-row" data-isin="${pos.isin}">
+                <div style="flex:1;min-width:140px">
+                    <div class="target-name">${pos.name}</div>
+                    <span class="target-isin">${pos.isin}</span>
+                </div>
+                <div class="target-bar-wrap">
+                    <div class="target-bar-fill" id="bar-${pos.isin.replace(/\./g,'_')}" style="width:${pct}%"></div>
+                </div>
+                <div class="target-input-wrap">
+                    <input type="number" class="target-input" min="0" max="100" step="0.1"
+                        value="${pct}" data-isin="${pos.isin}" data-name="${pos.name}"
+                        oninput="onTargetInput(this)">
+                    <span class="target-pct-label">%</span>
+                </div>
+            </div>`;
+    }).join('');
+
+    updateTargetSum();
+}
+
+function onTargetInput(input) {
+    const val   = Math.max(0, Math.min(100, parseFloat(input.value) || 0));
+    const isin  = input.dataset.isin;
+    const barId = 'bar-' + isin.replace(/\./g,'_');
+    const bar   = document.getElementById(barId);
+    if (bar) bar.style.width = val + '%';
+    updateTargetSum();
+}
+
+function updateTargetSum() {
+    const inputs = document.querySelectorAll('.target-input');
+    const total  = [...inputs].reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+    const el     = document.getElementById('target-sum-display');
+    if (!el) return;
+    const rounded = Math.round(total * 10) / 10;
+    el.textContent = `Total: ${rounded}%`;
+    el.style.color = Math.abs(rounded - 100) < 0.1 ? 'var(--green)' : rounded > 100 ? 'var(--red)' : 'var(--text3)';
+}
+
+async function saveTargets() {
+    const inputs = document.querySelectorAll('.target-input');
+    const data   = [...inputs].map(el => ({
+        isin:       el.dataset.isin,
+        name:       el.dataset.name,
+        target_pct: parseFloat(el.value) || 0
+    })).filter(d => d.target_pct > 0);
+
+    const total = data.reduce((s, d) => s + d.target_pct, 0);
+    if (Math.abs(total - 100) > 0.5 && total > 0) {
+        alert(`Total ist ${total.toFixed(1)}% — muss 100% ergeben.`);
+        return;
+    }
+
+    try {
+        await fetch('/api/targets', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        _targets = data;
+        await computeAndRenderRebalancing();
+    } catch(e) { alert('Fehler beim Speichern.'); }
+}
+
+async function computeAndRenderRebalancing() {
+    if (!_targets.length) {
+        renderRebalancingEmpty();
+        return;
+    }
+
+    // Aktuelle Marktwerte via yfinance holen
+    const tickers    = [...new Set(portfolio.map(i => i.ticker))].filter(Boolean);
+    const fxTickers  = getRequiredFxTickers();
+    const allTickers = [...tickers, ...fxTickers];
+
+    let allData = [];
+    try {
+        allData = await Promise.all(allTickers.map(async t => {
+            const res  = await fetch(`/get_history?symbol=${t}&period=5d`, { credentials: 'include' });
+            const data = await res.json();
+            return { ticker: t, history: Array.isArray(data) ? data : [] };
+        }));
+    } catch(e) {}
+
+    // Aktuelle Werte pro ISIN berechnen
+    const grouped = portfolio.reduce((acc, item) => {
+        const key = item.isin || item.name;
+        if (!acc[key]) acc[key] = { name: item.name, isin: item.isin || item.name, ticker: item.ticker, totalAmount: 0, totalInvested: 0, items: [] };
+        acc[key].totalAmount   += item.amount;
+        acc[key].totalInvested += item.totalCHF;
+        acc[key].items.push(item);
+        return acc;
+    }, {});
+
+    let totalCurrentCHF = 0;
+    const positionValues = {};
+
+    for (const key in grouped) {
+        const g          = grouped[key];
+        const tickerData = allData.find(d => d.ticker === g.ticker);
+        const price      = tickerData?.history?.at(-1)?.price || 0;
+        const currency   = g.items[0]?.currency || 'USD';
+        const fx         = getCurrentFxRate(allData, currency);
+        const valueCHF   = g.totalAmount * price * fx || g.totalInvested;
+        positionValues[g.isin] = { name: g.name, isin: g.isin, valueCHF, ticker: g.ticker };
+        totalCurrentCHF += valueCHF;
+    }
+
+    // Cash dazurechnen
+    totalCurrentCHF += cashBalance;
+
+    // Rebalancing berechnen
+    const rows = _targets.map(t => {
+        const pos        = positionValues[t.isin] || { valueCHF: 0, name: t.name };
+        const istCHF     = pos.valueCHF;
+        const istPct     = totalCurrentCHF > 0 ? (istCHF / totalCurrentCHF * 100) : 0;
+        const sollCHF    = totalCurrentCHF * t.target_pct / 100;
+        const diffCHF    = sollCHF - istCHF;
+        const diffPct    = istPct - t.target_pct;
+        return { name: t.name, isin: t.isin, istCHF, istPct, sollCHF, sollPct: t.target_pct, diffCHF, diffPct };
+    });
+
+    renderRebalancingChart(rows);
+    renderRebalancingTable(rows, totalCurrentCHF);
+}
+
+function renderRebalancingEmpty() {
+    const tbl = document.getElementById('rebalancing-table');
+    if (tbl) tbl.innerHTML = `<div style="text-align:center;padding:32px;color:var(--text3);font-size:12px;font-family:'DM Mono',monospace">Bitte zuerst Ziel-Allokation definieren und speichern.</div>`;
+    if (_rebChart) { _rebChart.destroy(); _rebChart = null; }
+}
+
+function renderRebalancingChart(rows) {
+    const canvas = document.getElementById('rebalancing-chart');
+    if (!canvas) return;
+    if (_rebChart) { _rebChart.destroy(); _rebChart = null; }
+
+    const labels  = rows.map(r => r.name.length > 16 ? r.name.slice(0,14)+'…' : r.name);
+    const istData = rows.map(r => Math.round(r.istPct * 10) / 10);
+    const solData = rows.map(r => r.sollPct);
+    const tickColor = getVar('--text3') || '#A8B4CC';
+    const tt        = getTooltipDefaults();
+
+    _rebChart = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Ist %',  data: istData, backgroundColor: getVar('--accent')     || '#5B8DEF', borderRadius: 4, barPercentage: 0.4 },
+                { label: 'Soll %', data: solData, backgroundColor: getVar('--accent-soft') || '#A9C9FF', borderRadius: 4, barPercentage: 0.4 },
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: tickColor, font: { family: "'DM Mono', monospace", size: 10 } } },
+                y: { grid: { color: 'rgba(128,128,128,0.12)', drawBorder: false }, ticks: { color: tickColor, font: { family: "'DM Mono', monospace", size: 10 }, callback: v => v + '%' } }
+            },
+            plugins: {
+                legend: { labels: { color: getVar('--text2'), font: { family: "'DM Mono', monospace", size: 11 }, boxWidth: 12, padding: 16 } },
+                tooltip: { ...tt, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%` } }
+            }
+        }
+    });
+}
+
+function renderRebalancingTable(rows, totalCHF) {
+    const container = document.getElementById('rebalancing-table');
+    if (!container) return;
+
+    const fmtCHF = v => v.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+    const bodyRows = rows.map(r => {
+        const action = Math.abs(r.diffCHF) < 10
+            ? `<span class="reb-badge reb-ok">✓ OK</span>`
+            : r.diffCHF > 0
+                ? `<span class="reb-badge reb-buy">↑ Kaufen</span>`
+                : `<span class="reb-badge reb-sell">↓ Verkaufen</span>`;
+
+        const diffColor = Math.abs(r.diffCHF) < 10 ? 'var(--text3)' : r.diffCHF > 0 ? 'var(--green)' : 'var(--red)';
+        const sign      = r.diffCHF >= 0 ? '+' : '';
+
+        return `<tr class="reb-row">
+            <td class="reb-td"><strong style="color:var(--text);font-family:var(--body)">${r.name}</strong><br><span style="font-size:10px;color:var(--text3)">${r.isin}</span></td>
+            <td class="reb-td num">${fmtCHF(r.istCHF)}</td>
+            <td class="reb-td num">${r.istPct.toFixed(1)}%</td>
+            <td class="reb-td num">${r.sollPct.toFixed(1)}%</td>
+            <td class="reb-td num" style="color:${diffColor};font-weight:600">${sign}${fmtCHF(r.diffCHF)}</td>
+            <td class="reb-td num" style="color:${diffColor}">${sign}${r.diffPct.toFixed(1) * -1}%</td>
+            <td class="reb-td">${action}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="reb-table">
+            <thead><tr>
+                <th class="reb-th">Position</th>
+                <th class="reb-th num">Ist (CHF)</th>
+                <th class="reb-th num">Ist %</th>
+                <th class="reb-th num">Soll %</th>
+                <th class="reb-th num">Differenz CHF</th>
+                <th class="reb-th num">Differenz %</th>
+                <th class="reb-th">Aktion</th>
+            </tr></thead>
+            <tbody>${bodyRows}</tbody>
+        </table>`;
+}
+
+// ─── EXPORT ───────────────────────────────────────────────
+
+function exportCSV() {
+    window.location.href = '/api/export/csv';
+}
+
+function exportPDF() {
+    window.location.href = '/api/export/pdf';
 }
