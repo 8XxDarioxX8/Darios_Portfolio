@@ -36,11 +36,15 @@ def init_db():
                   name TEXT, isin TEXT, amount REAL, priceUSD REAL,
                   rate REAL, date TEXT, totalCHF REAL, ticker TEXT,
                   fees REAL DEFAULT 0, fee_stamp REAL DEFAULT 0,
-                  fee_other REAL DEFAULT 0, currency TEXT DEFAULT "USD")''')
+                  fee_other REAL DEFAULT 0, currency TEXT DEFAULT "USD",
+                  asset_type TEXT DEFAULT "stock",
+                  manual_price REAL DEFAULT NULL)''')
 
     for col in ['user_id INTEGER DEFAULT 1', 'fees REAL DEFAULT 0',
                 'currency TEXT DEFAULT "USD"', 'fee_stamp REAL DEFAULT 0',
-                'fee_other REAL DEFAULT 0']:
+                'fee_other REAL DEFAULT 0',
+                'asset_type TEXT DEFAULT "stock"',
+                'manual_price REAL DEFAULT NULL']:
         try:
             c.execute(f'ALTER TABLE portfolio ADD COLUMN {col}')
         except sqlite3.OperationalError:
@@ -274,11 +278,13 @@ def add_portfolio():
     data = request.json
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''INSERT INTO portfolio (user_id, name, isin, amount, priceUSD, rate, date, totalCHF, ticker, fee_stamp, fee_other, currency)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+    c.execute('''INSERT INTO portfolio (user_id, name, isin, amount, priceUSD, rate, date, totalCHF, ticker, fee_stamp, fee_other, currency, asset_type, manual_price)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
               (user_id, data['name'], data['isin'], data['amount'], data['priceUSD'],
                data['rate'], data['date'], data['totalCHF'], data['ticker'],
-               data.get('fee_stamp', 0), data.get('fee_other', 0), data.get('currency', 'USD')))
+               data.get('fee_stamp', 0), data.get('fee_other', 0), data.get('currency', 'USD'),
+               data.get('asset_type', 'stock'),
+               data.get('manual_price', None)))
     conn.commit()
     new_id = c.lastrowid
     conn.close()
@@ -300,17 +306,34 @@ def update_portfolio(portfolio_id):
     if not user_id: return jsonify({'error': 'Nicht eingeloggt'}), 401
     data = request.json
     conn = get_db_connection()
-    conn.execute('''UPDATE portfolio SET name=?, isin=?, amount=?, priceUSD=?, rate=?, date=?, totalCHF=?, ticker=?, fee_stamp=?, fee_other=?, currency=?
+    conn.execute('''UPDATE portfolio SET name=?, isin=?, amount=?, priceUSD=?, rate=?, date=?, totalCHF=?, ticker=?, fee_stamp=?, fee_other=?, currency=?, asset_type=?, manual_price=?
                     WHERE id=? AND user_id=?''',
                  (data['name'], data['isin'], data['amount'], data['priceUSD'],
                   data['rate'], data['date'], data['totalCHF'], data['ticker'],
                   data.get('fee_stamp', 0), data.get('fee_other', 0),
-                  data.get('currency', 'USD'), portfolio_id, user_id))
+                  data.get('currency', 'USD'),
+                  data.get('asset_type', 'stock'),
+                  data.get('manual_price', None),
+                  portfolio_id, user_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
 
-# ── CASH ─────────────────────────────────────────────────
+@app.route('/api/portfolio/<int:portfolio_id>/price', methods=['PUT'])
+def update_manual_price(portfolio_id):
+    """Aktualisiert nur den manuellen Kurs einer Position (für Assets ohne Ticker)."""
+    user_id = require_login()
+    if not user_id: return jsonify({'error': 'Nicht eingeloggt'}), 401
+    data = request.json
+    price = data.get('manual_price')
+    if price is None:
+        return jsonify({'error': 'Kein Kurs angegeben'}), 400
+    conn = get_db_connection()
+    conn.execute('UPDATE portfolio SET manual_price=? WHERE id=? AND user_id=?',
+                 (float(price), portfolio_id, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
 
 @app.route('/api/cash', methods=['GET'])
 def get_cash():
@@ -375,12 +398,15 @@ def export_csv():
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     writer.writerow(['Datum', 'Name', 'ISIN', 'Ticker', 'Währung', 'Anzahl', 'Kurs',
-                     'Wechselkurs', 'Total CHF', 'Stempelsteuer CHF', 'Sonstige Kosten CHF'])
+                     'Wechselkurs', 'Total CHF', 'Stempelsteuer CHF', 'Sonstige Kosten CHF',
+                     'Asset-Typ', 'Manueller Kurs'])
     for r in rows:
         writer.writerow([
             r['date'], r['name'], r['isin'], r['ticker'], r['currency'],
             r['amount'], r['priceUSD'], r['rate'], r['totalCHF'],
-            r['fee_stamp'] or 0, r['fee_other'] or 0
+            r['fee_stamp'] or 0, r['fee_other'] or 0,
+            r['asset_type'] or 'stock',
+            r['manual_price'] if r['manual_price'] is not None else ''
         ])
 
     output.seek(0)
@@ -390,7 +416,67 @@ def export_csv():
         headers={'Content-Disposition': 'attachment; filename=portfolio_export.csv'}
     )
 
-@app.route('/api/export/pdf')
+@app.route('/api/import/csv', methods=['POST'])
+def import_csv():
+    """
+    Importiert Transaktionen aus einem CSV.
+    Erwartet JSON: { rows: [{name, isin, ticker, currency, amount, priceUSD, rate,
+                              date, totalCHF, fee_stamp, fee_other,
+                              asset_type, manual_price}] }
+    Gibt {imported, skipped, errors} zurück.
+    """
+    user_id = require_login()
+    if not user_id: return jsonify({'error': 'Nicht eingeloggt'}), 401
+
+    data = request.json
+    rows = data.get('rows', [])
+    if not rows:
+        return jsonify({'error': 'Keine Zeilen zum Importieren'}), 400
+
+    conn = get_db_connection()
+    imported = 0
+    errors   = []
+
+    for i, r in enumerate(rows):
+        try:
+            name   = str(r.get('name', '')).strip()
+            isin   = str(r.get('isin', '')).strip().upper()
+            if not name or not isin:
+                errors.append(f"Zeile {i+1}: Name oder ISIN fehlt")
+                continue
+
+            amount    = float(r.get('amount', 0) or 0)
+            priceUSD  = float(r.get('priceUSD', 0) or 0)
+            rate      = float(r.get('rate', 1) or 1)
+            totalCHF  = float(r.get('totalCHF', 0) or 0)
+            # Fallback: totalCHF berechnen wenn nicht angegeben
+            if totalCHF == 0 and amount > 0 and priceUSD > 0:
+                totalCHF = amount * priceUSD * rate
+
+            conn.execute(
+                '''INSERT INTO portfolio
+                   (user_id, name, isin, ticker, currency, amount, priceUSD, rate,
+                    date, totalCHF, fee_stamp, fee_other, asset_type, manual_price)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (user_id,
+                 name, isin,
+                 str(r.get('ticker', '') or '').strip().upper(),
+                 str(r.get('currency', 'CHF') or 'CHF').strip().upper(),
+                 amount, priceUSD, rate,
+                 str(r.get('date', '') or '').strip(),
+                 totalCHF,
+                 float(r.get('fee_stamp', 0) or 0),
+                 float(r.get('fee_other', 0) or 0),
+                 str(r.get('asset_type', 'stock') or 'stock').strip(),
+                 float(r['manual_price']) if r.get('manual_price') not in (None, '', 'None') else None)
+            )
+            imported += 1
+        except Exception as e:
+            errors.append(f"Zeile {i+1}: {str(e)}")
+
+    conn.commit()
+    conn.close()
+    return jsonify({'imported': imported, 'skipped': len(errors), 'errors': errors})
 def export_pdf():
     user_id = require_login()
     if not user_id: return jsonify({'error': 'Nicht eingeloggt'}), 401

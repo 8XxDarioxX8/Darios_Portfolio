@@ -310,25 +310,55 @@ function renderPortfolio() {
     list.innerHTML = '';
     let investmentTotal = 0;
 
+    const TYPE_BADGE = {
+        stock:       '',
+        bond:        '<span class="asset-type-badge badge-bond">Anleihe</span>',
+        real_estate: '<span class="asset-type-badge badge-realestate">Immobilien</span>',
+        other:       '<span class="asset-type-badge badge-other">Sonstiges</span>',
+    };
+
     const grouped = portfolio.reduce((acc, item) => {
         const key = item.isin || item.name;
-        if (!acc[key]) acc[key] = { name: item.name, isin: item.isin, totalValue: 0, totalAmount: 0, buys: [] };
+        if (!acc[key]) acc[key] = {
+            name: item.name, isin: item.isin,
+            totalValue: 0, totalAmount: 0, buys: [],
+            asset_type: item.asset_type || 'stock',
+            manual_price: item.manual_price
+        };
         acc[key].buys.push(item);
         acc[key].totalValue  += item.totalCHF;
         acc[key].totalAmount += item.amount;
+        // Use latest manual_price if set
+        if (item.manual_price != null) acc[key].manual_price = item.manual_price;
         return acc;
     }, {});
 
     for (const key in grouped) {
-        const asset = grouped[key];
+        const asset    = grouped[key];
+        const atype    = asset.asset_type || 'stock';
+        const noChart  = ['bond', 'real_estate', 'other'].includes(atype);
         investmentTotal += asset.totalValue;
+
+        // Current value: use manual_price if set and no ticker
+        const hasTicker    = asset.buys.some(b => b.ticker);
+        const manualPrice  = asset.manual_price;
+        const manualNote   = (!hasTicker && manualPrice != null)
+            ? `<span style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:6px">Kurs: ${manualPrice.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${asset.buys[0]?.currency || 'CHF'}</span>`
+            : '';
+        const noChartNote  = noChart
+            ? `<span style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:4px">· kein Chart</span>`
+            : '';
+
         const el = document.createElement('div');
         el.className = 'asset-group';
         el.innerHTML = `
             <div class="asset-header" onclick="toggleAssetDetails(this)">
                 <div>
-                    <div class="asset-name">${asset.name}</div>
-                    <div class="asset-meta">${asset.isin || '—'}</div>
+                    <div class="asset-name">
+                        ${asset.name}
+                        ${TYPE_BADGE[atype] || ''}
+                    </div>
+                    <div class="asset-meta">${asset.isin || '—'}${manualNote}${noChartNote}</div>
                 </div>
                 <div class="asset-summary">
                     <span class="asset-amount">${asset.totalAmount.toFixed(4)} Stk.</span>
@@ -338,13 +368,13 @@ function renderPortfolio() {
             </div>
             <div class="asset-details">
                 <table class="details-table">
-                    <thead><tr><th>Datum</th><th>Stk.</th><th>Kurs</th><th>Kurs/CHF</th><th>Total CHF</th><th>Stempelgebühr</th><th></th></tr></thead>
+                    <thead><tr><th>Datum</th><th>Stk.</th><th>Kaufkurs</th><th>Kurs/CHF</th><th>Total CHF</th><th>Stempelgebühr</th><th></th></tr></thead>
                     <tbody>
                         ${asset.buys.map(buy => `
                             <tr>
                                 <td>${buy.date || '—'}</td>
                                 <td>${(buy.amount || 0).toFixed(4)}</td>
-                                <td>${(buy.priceUSD || 0).toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${buy.currency || 'USD'}</td>
+                                <td>${(buy.priceUSD || 0).toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ${buy.currency || 'CHF'}</td>
                                 <td>${buy.currency === 'CHF' ? '—' : (buy.rate || 0).toFixed(4)}</td>
                                 <td>${(buy.totalCHF || 0).toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                                 <td>${(buy.fee_stamp || 0).toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
@@ -435,7 +465,12 @@ async function loadPerformanceChart(period = 'max') {
     const badge = document.getElementById('chart-return-badge');
     if (badge) badge.style.display = 'none';
 
-    const tickers = [...new Set(portfolio.map(i => i.ticker))].filter(Boolean);
+    // Nur Chart-fähige Assets (Aktien/ETFs mit Ticker) für den Chart verwenden
+    const CHART_TYPES = ['stock', null, undefined, ''];
+    const chartAssets = portfolio.filter(i =>
+        CHART_TYPES.includes(i.asset_type) && i.ticker
+    );
+    const tickers = [...new Set(chartAssets.map(i => i.ticker))].filter(Boolean);
     if (!tickers.length) { if (loader) loader.classList.add('hidden'); return; }
 
     try {
@@ -482,13 +517,27 @@ async function loadPerformanceChart(period = 'max') {
                 const buyTime = new Date(asset.date + ' 00:00:00').getTime();
                 if (buyTime > currentTime) return;
                 investedVal += asset.totalCHF;
-                const tickerData = allData.find(d => d.ticker === asset.ticker);
-                if (tickerData) {
-                    const price = getPriceForDate(tickerData.history, dateLabel, datePrefix);
-                    if (price != null) lastKnownPrices[asset.ticker] = price;
-                    const assetFX = getFxRate(allData, asset.currency || 'USD', dateLabel);
-                    if (assetFX) lastKnownFX = assetFX;
-                    marketVal += asset.amount * (lastKnownPrices[asset.ticker] || 0) * assetFX;
+
+                const atype   = asset.asset_type || 'stock';
+                const inChart = ['stock', '', null, undefined].includes(atype) && asset.ticker;
+
+                if (inChart) {
+                    // Normal: Kurs von yfinance
+                    const tickerData = allData.find(d => d.ticker === asset.ticker);
+                    if (tickerData) {
+                        const price = getPriceForDate(tickerData.history, dateLabel, datePrefix);
+                        if (price != null) lastKnownPrices[asset.ticker] = price;
+                        const assetFX = getFxRate(allData, asset.currency || 'USD', dateLabel);
+                        if (assetFX) lastKnownFX = assetFX;
+                        marketVal += asset.amount * (lastKnownPrices[asset.ticker] || 0) * assetFX;
+                    }
+                } else if (asset.manual_price != null) {
+                    // Manueller Kurs: konstanter Wert (kein Verlauf verfügbar)
+                    const fx = asset.currency === 'CHF' ? 1 : getFxRate(allData, asset.currency || 'CHF', dateLabel);
+                    marketVal += asset.amount * asset.manual_price * fx;
+                } else {
+                    // Kein Ticker, kein manueller Kurs → Kaufwert als Näherung
+                    marketVal += asset.totalCHF;
                 }
             });
 
@@ -703,11 +752,17 @@ async function loadAssetOverview() {
 
         const grouped = portfolio.reduce((acc, item) => {
             const key = item.isin || item.name;
-            if (!acc[key]) acc[key] = { name: item.name, isin: item.isin, ticker: item.ticker, totalAmount: 0, totalInvested: 0, rateSum: 0, items: [] };
+            if (!acc[key]) acc[key] = {
+                name: item.name, isin: item.isin, ticker: item.ticker,
+                totalAmount: 0, totalInvested: 0, rateSum: 0, items: [],
+                asset_type: item.asset_type || 'stock',
+                manual_price: item.manual_price
+            };
             acc[key].totalAmount   += item.amount;
             acc[key].totalInvested += item.totalCHF;
             acc[key].rateSum       += item.rate;
             acc[key].items.push(item);
+            if (item.manual_price != null) acc[key].manual_price = item.manual_price;
             return acc;
         }, {});
 
@@ -715,20 +770,40 @@ async function loadAssetOverview() {
         let totals = { invested: 0, wert: 0, stockGain: 0, fxGain: 0, totalGain: 0, fees: 0 };
 
         for (const key in grouped) {
-            const g            = grouped[key];
-            const tickerData   = allData.find(d => d.ticker === g.ticker);
-            const currentPrice = tickerData?.history?.at(-1)?.price || 0;
-            const currency     = g.items[0]?.currency || 'USD';
-            const currentFX    = getCurrentFxRate(allData, currency);
-            const avgBuyRate   = currency === 'CHF' ? 1 : (g.rateSum / g.items.length);
-            const currentVal   = g.totalAmount * currentPrice * currentFX;
-            const invested     = g.totalInvested;
-            const atBuyRate    = g.totalAmount * currentPrice * avgBuyRate;
-            const stockGain    = atBuyRate - invested;
-            const fxGain       = currency === 'CHF' ? 0 : (currentVal - atBuyRate);
-            const totalGain    = currentVal - invested;
-            const fees         = g.items.reduce((s, it) => s + (it.fees || 0), 0);
-            rows.push({ name: g.name, ticker: g.ticker || '—', amount: g.totalAmount, wert: currentVal, invested, stockGain, fxGain, totalGain, fees });
+            const g        = grouped[key];
+            const currency = g.items[0]?.currency || 'USD';
+            const currentFX = getCurrentFxRate(allData, currency);
+            const avgBuyRate = currency === 'CHF' ? 1 : (g.rateSum / g.items.length);
+
+            // Aktuellen Preis bestimmen: yfinance > manual_price > Kaufwert
+            let currentPrice = 0;
+            let priceSource  = 'none';
+            if (g.ticker) {
+                const tickerData = allData.find(d => d.ticker === g.ticker);
+                currentPrice = tickerData?.history?.at(-1)?.price || 0;
+                if (currentPrice > 0) priceSource = 'yfinance';
+            }
+            if (currentPrice === 0 && g.manual_price != null) {
+                currentPrice = g.manual_price;
+                priceSource  = 'manual';
+            }
+
+            const currentVal = currentPrice > 0
+                ? g.totalAmount * currentPrice * currentFX
+                : g.totalInvested; // Fallback: Kaufwert
+            const invested   = g.totalInvested;
+            const atBuyRate  = g.totalAmount * currentPrice * avgBuyRate;
+            const stockGain  = currentPrice > 0 ? (atBuyRate - invested) : 0;
+            const fxGain     = (currentPrice > 0 && currency !== 'CHF') ? (currentVal - atBuyRate) : 0;
+            const totalGain  = currentVal - invested;
+            const fees       = g.items.reduce((s, it) => s + (it.fees || 0), 0);
+            const atype      = g.asset_type || 'stock';
+
+            rows.push({
+                name: g.name, ticker: g.ticker || '—', amount: g.totalAmount,
+                wert: currentVal, invested, stockGain, fxGain, totalGain, fees,
+                asset_type: atype, price_source: priceSource
+            });
             totals.invested  += invested;
             totals.wert      += currentVal;
             totals.stockGain += stockGain;
@@ -737,6 +812,11 @@ async function loadAssetOverview() {
             totals.fees      += fees;
         }
 
+        const TYPE_BADGE_OV = {
+            bond:        '<span class="asset-type-badge badge-bond" style="font-size:9px;padding:1px 6px">Anleihe</span>',
+            real_estate: '<span class="asset-type-badge badge-realestate" style="font-size:9px;padding:1px 6px">Immobilien</span>',
+            other:       '<span class="asset-type-badge badge-other" style="font-size:9px;padding:1px 6px">Sonstiges</span>',
+        };
         const fmtCHF  = v => v.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
         const gainCell = v => `<td class="overview-td num ${v >= 0 ? 'gain-pos' : 'gain-neg'}">${v >= 0 ? '+' : ''}${fmtCHF(v)}</td>`;
 
@@ -757,16 +837,28 @@ async function loadAssetOverview() {
                             <th class="overview-th num">Gebühren</th>
                         </tr></thead>
                         <tbody>
-                            ${rows.map((r, i) => `
+                            ${rows.map((r, i) => {
+                                const typeBadge = TYPE_BADGE_OV[r.asset_type] || '';
+                                const srcNote   = r.price_source === 'manual'
+                                    ? '<span style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:4px">manuell</span>'
+                                    : r.price_source === 'none'
+                                    ? '<span style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:4px">Kaufwert</span>'
+                                    : '';
+                                return `
                             <tr class="overview-row">
                                 <td class="overview-td idx">${i + 1}</td>
-                                <td class="overview-td"><span class="ov-name">${r.name}</span> <span class="ov-ticker">${r.ticker}</span></td>
+                                <td class="overview-td">
+                                    <span class="ov-name">${r.name}</span>
+                                    ${typeBadge}
+                                    <span class="ov-ticker">${r.ticker}</span>
+                                    ${srcNote}
+                                </td>
                                 <td class="overview-td num">${r.amount.toFixed(4)}</td>
                                 <td class="overview-td num">${fmtCHF(r.wert)}</td>
                                 <td class="overview-td num">${fmtCHF(r.invested)}</td>
                                 ${gainCell(r.totalGain)}${gainCell(r.stockGain)}${gainCell(r.fxGain)}
                                 <td class="overview-td num" style="color:var(--red)">${r.fees > 0 ? '-' + fmtCHF(r.fees) : '—'}</td>
-                            </tr>`).join('')}
+                            </tr>`;}).join('')}
                             <tr class="overview-total-row">
                                 <td class="overview-td idx"></td>
                                 <td class="overview-td"><span class="ov-name">Total</span></td>
@@ -1118,12 +1210,36 @@ function toggleEditModal(show) { document.getElementById('edit-modal')?.classLis
 function handleEditModalBackdrop(e) { if (e.target === document.getElementById('edit-modal')) toggleEditModal(false); }
 
 function clearTransactionForm() {
-    ['asset-name','isin','ticker','amount','price','exchange-rate','purchase-date','fee-stamp','fee-other']
+    ['asset-name','isin','ticker','amount','price','exchange-rate','purchase-date','fee-stamp','fee-other','manual-price']
         .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const curr = document.getElementById('currency');
     if (curr) { curr.value = 'USD'; updateCurrencyFields(); }
+    const type = document.getElementById('asset-type');
+    if (type) { type.value = 'stock'; updateAssetTypeFields(); }
     const preview = document.getElementById('transaction-preview');
     if (preview) preview.style.display = 'none';
+}
+
+// Asset-Typ Felder ein-/ausblenden
+function updateAssetTypeFields() {
+    const type        = document.getElementById('asset-type')?.value || 'stock';
+    const tickerField = document.getElementById('ticker-field');
+    const manualField = document.getElementById('manual-price-field');
+    // Bei Anleihen/Immobilien/Sonstiges: Ticker ausblenden, manueller Kurs einblenden
+    const noTicker = ['bond', 'real_estate', 'other'].includes(type);
+    if (tickerField) tickerField.style.display = noTicker ? 'none' : '';
+    if (manualField) manualField.style.display  = noTicker ? 'flex' : 'none';
+    if (noTicker) {
+        const tickerEl = document.getElementById('ticker');
+        if (tickerEl) tickerEl.value = '';
+    }
+}
+
+function updateEditAssetTypeFields() {
+    const type        = document.getElementById('edit-asset-type')?.value || 'stock';
+    const manualField = document.getElementById('edit-manual-price-field');
+    // Manueller Kurs immer sichtbar im Edit (auch für Aktien kann man überschreiben)
+    if (manualField) manualField.style.display = 'flex';
 }
 
 function setupTransactionPreview() {
@@ -1155,31 +1271,50 @@ function updateCurrencyFields() {
 function updateEditCurrencyFields() {
     const currency  = document.getElementById('edit-currency')?.value;
     const rateField = document.getElementById('edit-rate-field');
-    if (document.getElementById('edit-price-label')) document.getElementById('edit-price-label').textContent = currency;
-    if (document.getElementById('edit-rate-label'))  document.getElementById('edit-rate-label').textContent  = currency;
+    if (document.getElementById('edit-price-label')) document.getElementById('edit-price-label').textContent = `Kaufkurs (${currency})`;
+    if (document.getElementById('edit-rate-label'))  document.getElementById('edit-rate-label').textContent  = `Wechselkurs (${currency}/CHF)`;
     if (rateField) rateField.style.display = currency === 'CHF' ? 'none' : 'flex';
 }
+
+// Asset-Typ Label
+const ASSET_TYPE_LABELS = {
+    stock: 'Aktie/ETF', bond: 'Anleihe',
+    real_estate: 'Immobilien', other: 'Sonstiges'
+};
 
 // ─── CRUD ────────────────────────────────────────────────
 
 async function calculate() {
-    const name     = document.getElementById('asset-name')?.value?.trim();
-    const isin     = document.getElementById('isin')?.value?.trim().toUpperCase();
-    const ticker   = document.getElementById('ticker')?.value?.trim().toUpperCase();
-    const currency = document.getElementById('currency')?.value || 'USD';
-    const amount   = parseFloat(document.getElementById('amount')?.value);
-    const price    = parseFloat(document.getElementById('price')?.value);
-    const rate     = currency === 'CHF' ? 1 : (parseFloat(document.getElementById('exchange-rate')?.value) || 0);
-    const date     = document.getElementById('purchase-date')?.value;
-    const feeStamp = parseFloat(document.getElementById('fee-stamp')?.value) || 0;
-    const feeOther = parseFloat(document.getElementById('fee-other')?.value) || 0;
+    const name        = document.getElementById('asset-name')?.value?.trim();
+    const isin        = document.getElementById('isin')?.value?.trim().toUpperCase();
+    const assetType   = document.getElementById('asset-type')?.value || 'stock';
+    const noTicker    = ['bond', 'real_estate', 'other'].includes(assetType);
+    const ticker      = noTicker ? '' : (document.getElementById('ticker')?.value?.trim().toUpperCase() || '');
+    const currency    = document.getElementById('currency')?.value || 'USD';
+    const amount      = parseFloat(document.getElementById('amount')?.value);
+    const price       = parseFloat(document.getElementById('price')?.value);
+    const rate        = currency === 'CHF' ? 1 : (parseFloat(document.getElementById('exchange-rate')?.value) || 0);
+    const date        = document.getElementById('purchase-date')?.value;
+    const feeStamp    = parseFloat(document.getElementById('fee-stamp')?.value) || 0;
+    const feeOther    = parseFloat(document.getElementById('fee-other')?.value) || 0;
+    const manualPrice = noTicker ? (parseFloat(document.getElementById('manual-price')?.value) || null) : null;
 
     if (!name || !isin || isNaN(amount) || amount <= 0) { alert('Bitte Name, ISIN und Anzahl angeben.'); return; }
+
+    const totalCHF = amount * (isNaN(price) ? 0 : price) * (currency === 'CHF' ? 1 : rate);
 
     try {
         const res = await fetch('/api/portfolio', { credentials: 'include', method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, isin, amount, currency, priceUSD: isNaN(price) ? 0 : price, rate, date, totalCHF: amount * (isNaN(price) ? 0 : price) * rate, ticker: ticker || '', fee_stamp: feeStamp, fee_other: feeOther })
+            body: JSON.stringify({
+                name, isin, amount, currency,
+                priceUSD: isNaN(price) ? 0 : price,
+                rate, date, totalCHF,
+                ticker,
+                fee_stamp: feeStamp, fee_other: feeOther,
+                asset_type: assetType,
+                manual_price: manualPrice
+            })
         });
         if (!res.ok) throw new Error();
         await loadDataFromServer(); renderPortfolio(); toggleModal(false);
@@ -1197,40 +1332,79 @@ async function deleteBuy(dbId) {
 function openEditModal(dbId) {
     const item = portfolio.find(p => p.id === dbId);
     if (!item) return;
-    document.getElementById('edit-id').value         = dbId;
-    document.getElementById('edit-asset-name').value = item.name      || '';
-    document.getElementById('edit-isin').value        = item.isin      || '';
-    document.getElementById('edit-ticker').value      = item.ticker    || '';
-    document.getElementById('edit-currency').value    = item.currency  || 'USD';
-    document.getElementById('edit-amount').value      = item.amount    || '';
-    document.getElementById('edit-price').value       = item.priceUSD  || '';
-    document.getElementById('edit-rate').value        = item.rate      || '';
-    document.getElementById('edit-date').value        = item.date      || '';
-    document.getElementById('edit-fee-stamp').value   = item.fee_stamp || '';
-    document.getElementById('edit-fee-other').value   = item.fee_other || '';
-    updateEditCurrencyFields(); toggleEditModal(true);
+    document.getElementById('edit-id').value           = dbId;
+    document.getElementById('edit-asset-name').value   = item.name        || '';
+    document.getElementById('edit-isin').value          = item.isin        || '';
+    document.getElementById('edit-ticker').value        = item.ticker      || '';
+    document.getElementById('edit-currency').value      = item.currency    || 'USD';
+    document.getElementById('edit-amount').value        = item.amount      || '';
+    document.getElementById('edit-price').value         = item.priceUSD    || '';
+    document.getElementById('edit-rate').value          = item.rate        || '';
+    document.getElementById('edit-date').value          = item.date        || '';
+    document.getElementById('edit-fee-stamp').value     = item.fee_stamp   || '';
+    document.getElementById('edit-fee-other').value     = item.fee_other   || '';
+    document.getElementById('edit-asset-type').value    = item.asset_type  || 'stock';
+    document.getElementById('edit-manual-price').value  = item.manual_price != null ? item.manual_price : '';
+    updateEditCurrencyFields();
+    updateEditAssetTypeFields();
+    toggleEditModal(true);
 }
 
 async function saveEdit() {
-    const dbId     = parseInt(document.getElementById('edit-id')?.value);
-    const item     = portfolio.find(p => p.id === dbId);
+    const dbId        = parseInt(document.getElementById('edit-id')?.value);
+    const item        = portfolio.find(p => p.id === dbId);
     if (!item) return;
-    const name     = document.getElementById('edit-asset-name')?.value?.trim();
-    const isin     = document.getElementById('edit-isin')?.value?.trim().toUpperCase();
-    const ticker   = document.getElementById('edit-ticker')?.value?.trim().toUpperCase();
-    const currency = document.getElementById('edit-currency')?.value || 'USD';
-    const amount   = parseFloat(document.getElementById('edit-amount')?.value);
-    const price    = parseFloat(document.getElementById('edit-price')?.value) || 0;
-    const rate     = currency === 'CHF' ? 1 : (parseFloat(document.getElementById('edit-rate')?.value) || 1);
-    const date     = document.getElementById('edit-date')?.value;
-    const feeStamp = parseFloat(document.getElementById('edit-fee-stamp')?.value) || 0;
-    const feeOther = parseFloat(document.getElementById('edit-fee-other')?.value) || 0;
+    const name        = document.getElementById('edit-asset-name')?.value?.trim();
+    const isin        = document.getElementById('edit-isin')?.value?.trim().toUpperCase();
+    const ticker      = document.getElementById('edit-ticker')?.value?.trim().toUpperCase();
+    const currency    = document.getElementById('edit-currency')?.value || 'USD';
+    const amount      = parseFloat(document.getElementById('edit-amount')?.value);
+    const price       = parseFloat(document.getElementById('edit-price')?.value) || 0;
+    const rate        = currency === 'CHF' ? 1 : (parseFloat(document.getElementById('edit-rate')?.value) || 1);
+    const date        = document.getElementById('edit-date')?.value;
+    const feeStamp    = parseFloat(document.getElementById('edit-fee-stamp')?.value) || 0;
+    const feeOther    = parseFloat(document.getElementById('edit-fee-other')?.value) || 0;
+    const assetType   = document.getElementById('edit-asset-type')?.value || 'stock';
+    const manualRaw   = document.getElementById('edit-manual-price')?.value;
+    const manualPrice = manualRaw !== '' ? (parseFloat(manualRaw) || null) : null;
+
     try {
         await fetch(`/api/portfolio/${dbId}`, { credentials: 'include', method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...item, name, isin, ticker, currency, amount, priceUSD: price, rate, date, totalCHF: amount * price * rate, fee_stamp: feeStamp, fee_other: feeOther })
+            body: JSON.stringify({
+                ...item, name, isin, ticker, currency, amount,
+                priceUSD: price, rate, date,
+                totalCHF: amount * price * rate,
+                fee_stamp: feeStamp, fee_other: feeOther,
+                asset_type: assetType,
+                manual_price: manualPrice
+            })
         });
         await loadDataFromServer(); renderPortfolio(); toggleEditModal(false);
+    } catch (e) { alert('Fehler beim Speichern.'); }
+}
+
+// Nur den manuellen Kurs aktualisieren (ohne den Rest zu überschreiben)
+async function updateManualPriceOnly() {
+    const dbId  = parseInt(document.getElementById('edit-id')?.value);
+    const price = parseFloat(document.getElementById('edit-manual-price')?.value);
+    if (!dbId || isNaN(price) || price <= 0) { alert('Bitte einen gültigen Kurs eingeben.'); return; }
+    try {
+        await fetch(`/api/portfolio/${dbId}/price`, { credentials: 'include', method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ manual_price: price })
+        });
+        // Local update ohne Server-Reload
+        portfolio.forEach(p => { if (p.id === dbId) p.manual_price = price; });
+        renderPortfolio();
+        // Kleines visuelles Feedback
+        const btn = document.querySelector('#edit-modal [onclick="updateManualPriceOnly()"]');
+        if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = '✓ Gespeichert';
+            btn.style.background = 'var(--green)';
+            setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 1800);
+        }
     } catch (e) { alert('Fehler beim Speichern.'); }
 }
 
@@ -1567,4 +1741,262 @@ function exportCSV() {
 
 function exportPDF() {
     window.location.href = '/api/export/pdf';
+}
+
+// ─── CSV IMPORT ──────────────────────────────────────────
+
+let _importRows = [];   // Parsed rows ready to send
+
+function openImportModal() {
+    document.getElementById('import-modal').classList.add('open');
+    resetImport();
+    if (window.innerWidth <= 768) closeMobileSidebar();
+}
+
+function closeImportModal() {
+    document.getElementById('import-modal').classList.remove('open');
+    resetImport();
+}
+
+function resetImport() {
+    _importRows = [];
+    document.getElementById('import-step-1').style.display = '';
+    document.getElementById('import-step-2').style.display = 'none';
+    document.getElementById('import-step-3').style.display = 'none';
+    document.getElementById('import-file-error').style.display = 'none';
+    document.getElementById('import-file-input').value = '';
+    document.getElementById('import-dropzone').style.borderColor = '';
+}
+
+function handleImportDrop(e) {
+    e.preventDefault();
+    document.getElementById('import-dropzone').style.borderColor = '';
+    const file = e.dataTransfer.files[0];
+    if (file) handleImportFile(file);
+}
+
+function handleImportFile(file) {
+    if (!file) return;
+    if (!file.name.match(/\.(csv|txt)$/i)) {
+        showImportError('Bitte eine .csv oder .txt Datei auswählen.');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => parseImportCSV(e.target.result);
+    reader.onerror = () => showImportError('Datei konnte nicht gelesen werden.');
+    reader.readAsText(file, 'UTF-8');
+}
+
+function showImportError(msg) {
+    const el = document.getElementById('import-file-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+// Column name aliases — maps various header names → our internal key
+const COL_MAP = {
+    // Our own export format
+    'datum':               'date',
+    'name':                'name',
+    'isin':                'isin',
+    'ticker':              'ticker',
+    'währung':             'currency',
+    'waehrung':            'currency',
+    'currency':            'currency',
+    'anzahl':              'amount',
+    'amount':              'amount',
+    'kurs':                'priceUSD',
+    'preis':               'priceUSD',
+    'price':               'priceUSD',
+    'priceusd':            'priceUSD',
+    'wechselkurs':         'rate',
+    'rate':                'rate',
+    'exchange rate':       'rate',
+    'total chf':           'totalCHF',
+    'totalchf':            'totalCHF',
+    'total':               'totalCHF',
+    'stempelsteuer chf':   'fee_stamp',
+    'stempelsteuer':       'fee_stamp',
+    'fee_stamp':           'fee_stamp',
+    'sonstige kosten chf': 'fee_other',
+    'sonstige kosten':     'fee_other',
+    'fee_other':           'fee_other',
+    'fees':                'fee_other',
+    'asset-typ':           'asset_type',
+    'asset_type':          'asset_type',
+    'assettyp':            'asset_type',
+    'typ':                 'asset_type',
+    'manueller kurs':      'manual_price',
+    'manual_price':        'manual_price',
+    'manuellerkurs':       'manual_price',
+};
+
+function parseImportCSV(text) {
+    // Detect delimiter: ; or ,
+    const firstLine = text.split('\n')[0];
+    const delim = (firstLine.match(/;/g) || []).length >= (firstLine.match(/,/g) || []).length ? ';' : ',';
+
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) { showImportError('CSV hat zu wenige Zeilen.'); return; }
+
+    // Parse header
+    const headers = lines[0].split(delim).map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+    const colIdx  = {};
+    headers.forEach((h, i) => {
+        const mapped = COL_MAP[h];
+        if (mapped) colIdx[mapped] = i;
+    });
+
+    const required = ['name', 'isin'];
+    const missing  = required.filter(k => colIdx[k] === undefined);
+    if (missing.length) {
+        showImportError(`Pflicht-Spalten fehlen: ${missing.join(', ')}. Erste Zeile der CSV: "${lines[0]}"`);
+        return;
+    }
+
+    const warnings = [];
+    _importRows = [];
+
+    for (let li = 1; li < lines.length; li++) {
+        const line = lines[li];
+        if (!line.trim()) continue;
+
+        // Respect quoted fields
+        const cells = splitCSVLine(line, delim);
+
+        const get = key => {
+            const idx = colIdx[key];
+            return idx !== undefined ? (cells[idx] || '').trim().replace(/^["']|["']$/g, '') : '';
+        };
+
+        const name   = get('name');
+        const isin   = get('isin').toUpperCase();
+        if (!name || !isin) { warnings.push(`Zeile ${li+1}: Name oder ISIN leer — übersprungen`); continue; }
+
+        const amount   = parseFloat(get('amount'))   || 0;
+        const priceUSD = parseFloat(get('priceUSD')) || 0;
+        const rate     = parseFloat(get('rate'))     || (get('currency').toUpperCase() === 'CHF' ? 1 : 1);
+        let   totalCHF = parseFloat(get('totalCHF')) || 0;
+        if (totalCHF === 0 && amount > 0 && priceUSD > 0) totalCHF = amount * priceUSD * rate;
+
+        const assetType = get('asset_type') || 'stock';
+        const manualRaw = get('manual_price');
+        const manualPrice = manualRaw !== '' ? (parseFloat(manualRaw) || null) : null;
+
+        _importRows.push({
+            name, isin,
+            ticker:    get('ticker').toUpperCase(),
+            currency:  get('currency').toUpperCase() || 'CHF',
+            amount, priceUSD, rate, totalCHF,
+            date:      get('date'),
+            fee_stamp: parseFloat(get('fee_stamp')) || 0,
+            fee_other: parseFloat(get('fee_other')) || 0,
+            asset_type: assetType,
+            manual_price: manualPrice,
+        });
+    }
+
+    if (!_importRows.length) { showImportError('Keine gültigen Zeilen gefunden.'); return; }
+
+    showImportPreview(warnings);
+}
+
+function splitCSVLine(line, delim) {
+    const result = [];
+    let cur = '', inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"' && !inQuote) { inQuote = true; }
+        else if (ch === '"' && inQuote) { inQuote = false; }
+        else if (ch === delim && !inQuote) { result.push(cur); cur = ''; }
+        else { cur += ch; }
+    }
+    result.push(cur);
+    return result;
+}
+
+function showImportPreview(warnings) {
+    document.getElementById('import-step-1').style.display = 'none';
+    document.getElementById('import-step-2').style.display = '';
+
+    document.getElementById('import-preview-count').textContent =
+        `${_importRows.length} Transaktion${_importRows.length !== 1 ? 'en' : ''} erkannt`;
+
+    // Warn box
+    const warnEl = document.getElementById('import-warn');
+    if (warnings.length) {
+        warnEl.style.display = '';
+        warnEl.innerHTML = warnings.map(w => `<div>⚠ ${w}</div>`).join('');
+    } else {
+        warnEl.style.display = 'none';
+    }
+
+    // Preview table (max 5 rows)
+    const preview = _importRows.slice(0, 5);
+    const cols    = ['date', 'name', 'isin', 'ticker', 'currency', 'amount', 'priceUSD', 'asset_type'];
+    const labels  = ['Datum', 'Name', 'ISIN', 'Ticker', 'Währung', 'Anzahl', 'Kurs', 'Typ'];
+
+    const thead = `<thead><tr>${labels.map(l =>
+        `<th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--text3);
+                    letter-spacing:0.04em;text-transform:uppercase;border-bottom:1px solid var(--border);
+                    white-space:nowrap;background:var(--surface2)">${l}</th>`
+    ).join('')}</tr></thead>`;
+
+    const tbody = `<tbody>${preview.map(r =>
+        `<tr>${cols.map(c =>
+            `<td style="padding:7px 10px;font-family:var(--mono);font-size:11px;
+                        color:var(--text2);border-bottom:1px solid var(--border);
+                        white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis">
+                ${r[c] != null && r[c] !== '' ? r[c] : '<span style="color:var(--text3)">—</span>'}
+             </td>`
+        ).join('')}</tr>`
+    ).join('')}${_importRows.length > 5
+        ? `<tr><td colspan="${cols.length}" style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:center;font-family:var(--mono)">
+               … und ${_importRows.length - 5} weitere
+           </td></tr>` : ''
+    }</tbody>`;
+
+    document.getElementById('import-preview-table').innerHTML = thead + tbody;
+}
+
+async function confirmImport() {
+    if (!_importRows.length) return;
+    const btn = document.getElementById('import-confirm-btn');
+    btn.textContent = 'Importiere…';
+    btn.disabled    = true;
+
+    try {
+        const res  = await fetch('/api/import/csv', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: _importRows })
+        });
+        const data = await res.json();
+
+        document.getElementById('import-step-2').style.display = 'none';
+        document.getElementById('import-step-3').style.display = '';
+
+        if (data.imported > 0) {
+            document.getElementById('import-result-icon').textContent = '✓';
+            document.getElementById('import-result-text').textContent =
+                `${data.imported} Transaktion${data.imported !== 1 ? 'en' : ''} erfolgreich importiert${data.skipped ? `, ${data.skipped} übersprungen` : ''}.`;
+            document.getElementById('import-result-text').style.color = 'var(--green)';
+            // Reload portfolio data
+            await loadDataFromServer();
+            renderPortfolio();
+        } else {
+            document.getElementById('import-result-icon').textContent = '⚠';
+            document.getElementById('import-result-text').textContent = 'Keine Transaktionen importiert.';
+            document.getElementById('import-result-text').style.color = 'var(--red)';
+        }
+
+        if (data.errors?.length) {
+            document.getElementById('import-result-errors').innerHTML =
+                data.errors.map(e => `<div style="margin-bottom:3px">• ${e}</div>`).join('');
+        }
+    } catch(e) {
+        btn.textContent = 'Importieren';
+        btn.disabled    = false;
+        alert('Fehler beim Import: ' + e.message);
+    }
 }

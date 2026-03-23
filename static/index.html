@@ -46,12 +46,15 @@
                     </a>
                 </nav>
                 <div style="margin-top:16px;padding:0 4px;display:flex;flex-direction:column;gap:6px">
-                    <div style="font-size:9px;font-weight:600;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;padding:0 6px;margin-bottom:2px">Export</div>
+                    <div style="font-size:9px;font-weight:600;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;padding:0 6px;margin-bottom:2px">Export / Import</div>
                     <button onclick="exportCSV()" class="nav-export-btn">
-                        <span style="font-size:13px">↓</span> CSV
+                        <span style="font-size:13px">↓</span> CSV Export
                     </button>
                     <button onclick="exportPDF()" class="nav-export-btn nav-export-accent">
                         <span style="font-size:13px">↓</span> PDF Report
+                    </button>
+                    <button onclick="openImportModal()" class="nav-export-btn" style="border-color:var(--green-soft);color:var(--green)">
+                        <span style="font-size:13px">↑</span> CSV Import
                     </button>
                 </div>
             </div>
@@ -312,12 +315,21 @@
             </div>
             <div class="modal-body">
                 <div class="form-row">
-                    <div class="form-field" style="position:relative">
+                    <div class="form-field">
+                        <label>Asset-Typ</label>
+                        <select id="asset-type" onchange="updateAssetTypeFields()">
+                            <option value="stock">Aktie / ETF</option>
+                            <option value="bond">Anleihe</option>
+                            <option value="real_estate">Immobilien</option>
+                            <option value="other">Sonstiges</option>
+                        </select>
+                    </div>
+                    <div class="form-field" style="position:relative" id="ticker-field">
                         <label>Ticker <span style="font-size:9px;color:var(--text3)">(Yahoo Finance)</span></label>
                         <input type="text" id="ticker" placeholder="Suchen: z.B. Novartis, AAPL…" autocomplete="off" oninput="searchTicker(this.value)">
                         <div id="ticker-dropdown" class="ticker-dropdown" style="display:none"></div>
                     </div>
-                    <div class="form-field"><label>Asset Name</label><input type="text" id="asset-name" placeholder="Wird automatisch gefüllt"></div>
+                    <div class="form-field"><label>Asset Name</label><input type="text" id="asset-name" placeholder="z.B. Immofonds 1"></div>
                     <div class="form-field"><label>ISIN</label><input type="text" id="isin" placeholder="z.B. CH0012221716"></div>
                 </div>
                 <div class="form-row">
@@ -338,6 +350,19 @@
                 </div>
                 <div class="form-row" id="rate-field">
                     <div class="form-field"><label id="rate-label">Wechselkurs (USD/CHF)</label><input type="number" id="exchange-rate" placeholder="z.B. 0.9120" step="any"></div>
+                </div>
+                <!-- Manueller Kurs — nur für Assets ohne Ticker -->
+                <div class="form-row" id="manual-price-field" style="display:none">
+                    <div class="form-field">
+                        <label>Aktueller Kurs <span style="font-size:9px;color:var(--text3)">(manuell, in Währung oben)</span></label>
+                        <input type="number" id="manual-price" placeholder="z.B. 510.00" step="any">
+                    </div>
+                    <div class="form-field" style="display:flex;align-items:flex-end;padding-bottom:2px">
+                        <span style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.4">
+                            Kein yfinance-Ticker? Hier aktuellen Kurs eingeben.<br>
+                            Kann später im Edit-Modal aktualisiert werden.
+                        </span>
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="purchase-date"></div>
@@ -363,9 +388,18 @@
             <div class="modal-body">
                 <input type="hidden" id="edit-id">
                 <div class="form-row">
+                    <div class="form-field">
+                        <label>Asset-Typ</label>
+                        <select id="edit-asset-type" onchange="updateEditAssetTypeFields()">
+                            <option value="stock">Aktie / ETF</option>
+                            <option value="bond">Anleihe</option>
+                            <option value="real_estate">Immobilien</option>
+                            <option value="other">Sonstiges</option>
+                        </select>
+                    </div>
                     <div class="form-field"><label>Asset Name</label><input type="text" id="edit-asset-name"></div>
                     <div class="form-field"><label>ISIN</label><input type="text" id="edit-isin"></div>
-                    <div class="form-field"><label>Ticker</label><input type="text" id="edit-ticker"></div>
+                    <div class="form-field"><label>Ticker</label><input type="text" id="edit-ticker" placeholder="Leer lassen wenn kein Ticker"></div>
                 </div>
                 <div class="form-row">
                     <div class="form-field">
@@ -381,10 +415,25 @@
                         </select>
                     </div>
                     <div class="form-field"><label>Anzahl Stück</label><input type="number" id="edit-amount" step="any"></div>
-                    <div class="form-field"><label id="edit-price-label">Kurs</label><input type="number" id="edit-price" step="any"></div>
+                    <div class="form-field"><label id="edit-price-label">Kurs (Kaufkurs)</label><input type="number" id="edit-price" step="any"></div>
                 </div>
                 <div class="form-row" id="edit-rate-field">
                     <div class="form-field"><label id="edit-rate-label">Wechselkurs</label><input type="number" id="edit-rate" step="any"></div>
+                </div>
+                <!-- Manueller aktueller Kurs -->
+                <div class="form-row" id="edit-manual-price-field">
+                    <div class="form-field">
+                        <label>Aktueller Kurs <span style="font-size:9px;color:var(--text3)">(manuell — überschreibt yfinance)</span></label>
+                        <input type="number" id="edit-manual-price" step="any" placeholder="Leer = yfinance verwenden">
+                    </div>
+                    <div class="form-field" style="display:flex;align-items:flex-end;gap:8px;padding-bottom:2px">
+                        <button type="button" onclick="updateManualPriceOnly()"
+                            style="background:var(--accent);color:white;border:none;border-radius:var(--radius-sm);
+                                   padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;
+                                   font-family:var(--body);white-space:nowrap">
+                            Kurs aktualisieren
+                        </button>
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="form-field"><label>Kaufdatum</label><input type="date" id="edit-date"></div>
@@ -411,5 +460,78 @@
             </div>
         </div>
     </div>
+    <!-- CSV Import Modal -->
+    <div id="import-modal" class="modal" onclick="if(event.target===this)closeImportModal()">
+        <div class="modal-box" style="max-width:680px">
+            <div class="modal-header">
+                <h2>CSV Import</h2>
+                <button class="modal-close" onclick="closeImportModal()">✕</button>
+            </div>
+            <div class="modal-body">
+
+                <!-- Step 1: Datei wählen -->
+                <div id="import-step-1">
+                    <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.5">
+                        Importiere Transaktionen aus einer CSV-Datei. Das Format muss
+                        <strong>semikolon-getrennt</strong> (;) sein — identisch mit dem CSV-Export dieser App.
+                    </p>
+
+                    <!-- Format Referenz -->
+                    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px">
+                        <div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px">Erwartete Spalten</div>
+                        <div style="font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.8;overflow-x:auto;white-space:nowrap">
+                            Datum · Name · ISIN · Ticker · Währung · Anzahl · Kurs · Wechselkurs · Total CHF · Stempelsteuer CHF · Sonstige Kosten CHF · Asset-Typ · Manueller Kurs
+                        </div>
+                        <div style="font-size:11px;color:var(--text3);margin-top:8px">
+                            Asset-Typ: <code>stock</code> / <code>bond</code> / <code>real_estate</code> / <code>other</code> — Spalten 12+13 sind optional
+                        </div>
+                    </div>
+
+                    <div style="border:2px dashed var(--border2);border-radius:var(--radius);padding:28px;text-align:center;cursor:pointer;transition:all 0.15s;background:var(--bg)"
+                         id="import-dropzone"
+                         onclick="document.getElementById('import-file-input').click()"
+                         ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+                         ondragleave="this.style.borderColor=''"
+                         ondrop="handleImportDrop(event)">
+                        <div style="font-size:28px;margin-bottom:8px">📂</div>
+                        <div style="font-size:13px;font-weight:600;color:var(--text)">CSV-Datei auswählen</div>
+                        <div style="font-size:11px;color:var(--text3);margin-top:4px">oder hierher ziehen</div>
+                        <input type="file" id="import-file-input" accept=".csv,.txt" style="display:none" onchange="handleImportFile(this.files[0])">
+                    </div>
+                    <div id="import-file-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none"></div>
+                </div>
+
+                <!-- Step 2: Vorschau -->
+                <div id="import-step-2" style="display:none">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <div>
+                            <span style="font-size:13px;font-weight:600;color:var(--text)" id="import-preview-count"></span>
+                            <span style="font-size:11px;color:var(--text3);margin-left:8px">Vorschau (max. 5 Zeilen)</span>
+                        </div>
+                        <button onclick="resetImport()" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;font-family:var(--body)">← andere Datei</button>
+                    </div>
+                    <div style="overflow-x:auto;margin-bottom:16px">
+                        <table id="import-preview-table" style="width:100%;border-collapse:collapse;min-width:500px;font-size:11px;font-family:var(--mono)"></table>
+                    </div>
+                    <div id="import-warn" style="display:none;background:var(--red-bg);border:1px solid var(--red-soft);border-radius:var(--radius-sm);padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:12px"></div>
+                    <div style="display:flex;gap:10px">
+                        <button onclick="confirmImport()" id="import-confirm-btn" class="btn-save" style="flex:1">
+                            Importieren
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Ergebnis -->
+                <div id="import-step-3" style="display:none;text-align:center;padding:20px 0">
+                    <div id="import-result-icon" style="font-size:40px;margin-bottom:12px">✓</div>
+                    <div id="import-result-text" style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px"></div>
+                    <div id="import-result-errors" style="font-size:11px;color:var(--red);font-family:var(--mono);margin-top:8px;text-align:left;max-height:120px;overflow-y:auto"></div>
+                    <button onclick="closeImportModal()" class="btn-save" style="margin-top:20px;width:160px">Schliessen</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
