@@ -304,6 +304,58 @@ function showPage(pageId) {
 
 // ─── RENDER PORTFOLIO ────────────────────────────────────
 
+// ─── SORT STATE ──────────────────────────────────────────
+let _sortMode = 'name';   // 'name' | 'invested' | 'amount' | 'type' | 'date'
+let _sortAsc  = true;
+
+function setSortMode(mode, btnEl) {
+    if (_sortMode === mode) {
+        // Gleicher Modus → Richtung umkehren
+        _sortAsc = !_sortAsc;
+    } else {
+        _sortMode = mode;
+        _sortAsc  = true;
+    }
+    // Buttons updaten
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+    document.getElementById('sort-dir-btn').textContent = _sortAsc ? '↓' : '↑';
+    renderPortfolio();
+}
+
+function toggleSortDir() {
+    _sortAsc = !_sortAsc;
+    document.getElementById('sort-dir-btn').textContent = _sortAsc ? '↓' : '↑';
+    renderPortfolio();
+}
+
+function sortGrouped(grouped) {
+    const entries = Object.entries(grouped);
+    entries.sort(([, a], [, b]) => {
+        let va, vb;
+        switch (_sortMode) {
+            case 'invested':
+                va = a.totalValue; vb = b.totalValue; break;
+            case 'amount':
+                va = a.totalAmount; vb = b.totalAmount; break;
+            case 'type':
+                va = a.asset_type || 'stock'; vb = b.asset_type || 'stock';
+                return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+            case 'date':
+                // Frühestes Kaufdatum der Gruppe
+                va = a.buys.map(x => x.date || '').sort()[0] || '';
+                vb = b.buys.map(x => x.date || '').sort()[0] || '';
+                return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+            case 'name':
+            default:
+                va = a.name || ''; vb = b.name || '';
+                return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+        }
+        return _sortAsc ? (vb - va) : (va - vb); // numeric: höchste oben bei asc
+    });
+    return Object.fromEntries(entries);
+}
+
 function renderPortfolio() {
     const list = document.getElementById('positions-list');
     if (!list) return;
@@ -317,7 +369,7 @@ function renderPortfolio() {
         other:       '<span class="asset-type-badge badge-other">Sonstiges</span>',
     };
 
-    const grouped = portfolio.reduce((acc, item) => {
+    let grouped = portfolio.reduce((acc, item) => {
         const key = item.isin || item.name;
         if (!acc[key]) acc[key] = {
             name: item.name, isin: item.isin,
@@ -332,6 +384,9 @@ function renderPortfolio() {
         if (item.manual_price != null) acc[key].manual_price = item.manual_price;
         return acc;
     }, {});
+
+    // Sortierung anwenden
+    grouped = sortGrouped(grouped);
 
     for (const key in grouped) {
         const asset    = grouped[key];
@@ -416,7 +471,7 @@ function renderDonut() {
     }, {});
     if (cashBalance > 0) grouped['__cash__'] = { label: 'Cash', value: cashBalance };
 
-    const entries    = Object.values(grouped);
+    const entries    = Object.values(grouped).sort((a, b) => b.value - a.value);  // grösste zuerst
     const grandTotal = entries.reduce((s, e) => s + e.value, 0);
     // Theme-Farben zur Laufzeit holen (wechseln mit Theme)
     const colors     = entries.map((_, i) => getChartColors()[i % 6]);
@@ -1735,12 +1790,23 @@ function renderRebalancingTable(rows, totalCHF) {
 
 // ─── EXPORT ───────────────────────────────────────────────
 
+function getAuthToken() {
+    // Token aus den gespeicherten Profilen holen
+    try {
+        const profiles = JSON.parse(localStorage.getItem('dario_profiles') || '[]');
+        const current  = profiles.find(p => p.userId === window._currentUserId);
+        return current?.token || null;
+    } catch { return null; }
+}
+
 function exportCSV() {
-    window.location.href = '/api/export/csv';
+    const token = getAuthToken();
+    window.location.href = '/api/export/csv' + (token ? `?token=${token}` : '');
 }
 
 function exportPDF() {
-    window.location.href = '/api/export/pdf';
+    const token = getAuthToken();
+    window.location.href = '/api/export/pdf' + (token ? `?token=${token}` : '');
 }
 
 // ─── CSV IMPORT ──────────────────────────────────────────

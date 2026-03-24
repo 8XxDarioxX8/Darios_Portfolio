@@ -204,7 +204,23 @@
                         </div>
                     </div>
                     <div class="card">
-                        <div class="card-head"><span class="card-label">Positionen</span></div>
+                        <div class="card-head">
+                            <span class="card-label">Positionen</span>
+                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                                <span style="font-size:10px;color:var(--text3);font-family:var(--mono)">Sortieren:</span>
+                                <div class="sort-btns" id="sort-btns">
+                                    <button class="sort-btn active" onclick="setSortMode('name',this)">Name</button>
+                                    <button class="sort-btn" onclick="setSortMode('invested',this)">Investiert</button>
+                                    <button class="sort-btn" onclick="setSortMode('amount',this)">Anzahl</button>
+                                    <button class="sort-btn" onclick="setSortMode('type',this)">Typ</button>
+                                    <button class="sort-btn" onclick="setSortMode('date',this)">Datum</button>
+                                </div>
+                                <button id="sort-dir-btn" onclick="toggleSortDir()" title="Reihenfolge umkehren"
+                                    style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);
+                                           padding:4px 8px;font-size:12px;cursor:pointer;color:var(--text2);font-family:var(--mono);
+                                           transition:all 0.15s">↓</button>
+                            </div>
+                        </div>
                         <div class="card-body" style="padding:12px">
                             <div id="positions-list"></div>
                         </div>
