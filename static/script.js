@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-//  Dario's Portfolio — script.js
+//  Dario's Portfolio — script.js  (v3.1.1 — FX-Effekt Fix)
 // ═══════════════════════════════════════════════════════════
 
 const FX_TICKER_MAP = {
@@ -41,7 +41,6 @@ function getPriceForDate(tickerHistory, dateLabel, datePrefix) {
     return null;
 }
 
-// Liest CSS-Variablen zur Laufzeit aus — wichtig damit Charts mit Theme wechseln
 function getVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -71,12 +70,8 @@ let currentPerfData = null;
 function setTheme(theme, btnEl) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('dario_theme', theme);
-
-    // Alle Theme-Buttons zurücksetzen
     document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
-
-    // Charts neu rendern mit neuen Theme-Farben
     if (myDonutChart || myLineChart) {
         renderDonut();
         if (currentPerfData) loadPerformanceChart('max');
@@ -89,7 +84,6 @@ function setTheme(theme, btnEl) {
 function loadSavedTheme() {
     const saved = localStorage.getItem('dario_theme') || 'hell';
     document.documentElement.setAttribute('data-theme', saved);
-    // Richtigen Button als active markieren
     document.querySelectorAll('.theme-btn').forEach(btn => {
         const themeName = btn.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
         if (themeName === saved) btn.classList.add('active');
@@ -102,17 +96,17 @@ function loadSavedTheme() {
 const TOOLTIPS = {
     'twr':         'Time-Weighted Return: Misst die reine Anlagerendite unabhängig vom Einzahlungszeitpunkt. Ideal zum Vergleich mit Benchmarks.',
     'simple-ret':  'Simple Return: (Aktueller Wert − Investiert) ÷ Investiert. Zeigt wie viel du persönlich gewonnen hast.',
-    'kurseffekt':  'Kurseffekt: Gewinn/Verlust durch Kursveränderungen des Assets — gerechnet zum durchschnittlichen Kaufkurs.',
-    'fx-effekt':   'Währungseffekt: Gewinn/Verlust durch Veränderung des Wechselkurses seit dem Kauf.',
+    'kurseffekt':  'Kurseffekt: Gewinn/Verlust durch Kursveränderungen des Assets — gerechnet zum gewichteten Ø-Kaufkurs (nach Anzahl Stück).',
+    'fx-effekt':   'Währungseffekt: Gewinn/Verlust durch Veränderung des Wechselkurses seit dem Kauf. Berechnet per Asset mit gewichtetem Ø-Kaufkurs.',
     'gv-fees':     'G/V ohne Gebühren: Reiner Marktgewinn ohne Berücksichtigung von Stempelsteuer und sonstigen Kosten.',
     'fees':        'Gebühren: Summe aus Stempelsteuer und sonstigen Kosten (Kommission, Wechselspesen etc.) aller Käufe.',
     'investiert':  'Investiert: Summe aller Kaufbeträge in CHF (Anzahl × Kurs × FX-Rate zum Kaufzeitpunkt).',
     'akt-wert':    'Aktueller Wert: Anzahl Stück × aktueller Kurs × aktueller Wechselkurs in CHF.',
     'rendite-fees':'Rendite inkl. Gebühren: Simple Return abzüglich aller erfassten Gebühren.',
     'heatmap':     'Monatsrendite: (Letzter Wert des Monats − Erster Wert des Monats) ÷ Erster Wert. Berechnet aus täglichen Schlusskursen.',
-    'stock-gain':  'Stock Gain: Kursgewinn in CHF zum durchschnittlichen Kaufkurs — isoliert vom Währungseffekt.',
-    'fx-gain':     'FX Gain: Gewinn/Verlust durch Wechselkursveränderung seit Kauf.',
-    'total-gain':  'Total Gain: Aktueller Wert minus Kaufpreis in CHF (inkl. FX-Effekt).',
+    'stock-gain':  'Stock Gain: Kursgewinn in CHF — FX eingefroren auf gewichteten Ø-Kaufkurs (nach Anzahl Stück). Isoliert vom Währungseffekt.',
+    'fx-gain':     'FX Gain: Gewinn/Verlust durch Wechselkursveränderung seit Kauf. Kurs eingefroren auf aktuellem Preis.',
+    'total-gain':  'Total Gain: Aktueller Wert minus Kaufpreis in CHF (inkl. Kurs- und Währungseffekt).',
 };
 
 function iBtn(key) {
@@ -302,21 +296,13 @@ function showPage(pageId) {
     if (window.innerWidth <= 768) closeMobileSidebar();
 }
 
-// ─── RENDER PORTFOLIO ────────────────────────────────────
-
 // ─── SORT STATE ──────────────────────────────────────────
-let _sortMode = 'name';   // 'name' | 'invested' | 'amount' | 'type' | 'date'
+let _sortMode = 'name';
 let _sortAsc  = true;
 
 function setSortMode(mode, btnEl) {
-    if (_sortMode === mode) {
-        // Gleicher Modus → Richtung umkehren
-        _sortAsc = !_sortAsc;
-    } else {
-        _sortMode = mode;
-        _sortAsc  = true;
-    }
-    // Buttons updaten
+    if (_sortMode === mode) { _sortAsc = !_sortAsc; }
+    else { _sortMode = mode; _sortAsc = true; }
     document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
     if (btnEl) btnEl.classList.add('active');
     document.getElementById('sort-dir-btn').textContent = _sortAsc ? '↓' : '↑';
@@ -334,15 +320,12 @@ function sortGrouped(grouped) {
     entries.sort(([, a], [, b]) => {
         let va, vb;
         switch (_sortMode) {
-            case 'invested':
-                va = a.totalValue; vb = b.totalValue; break;
-            case 'amount':
-                va = a.totalAmount; vb = b.totalAmount; break;
+            case 'invested':  va = a.totalValue; vb = b.totalValue; break;
+            case 'amount':    va = a.totalAmount; vb = b.totalAmount; break;
             case 'type':
                 va = a.asset_type || 'stock'; vb = b.asset_type || 'stock';
                 return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
             case 'date':
-                // Frühestes Kaufdatum der Gruppe
                 va = a.buys.map(x => x.date || '').sort()[0] || '';
                 vb = b.buys.map(x => x.date || '').sort()[0] || '';
                 return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -351,10 +334,12 @@ function sortGrouped(grouped) {
                 va = a.name || ''; vb = b.name || '';
                 return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
         }
-        return _sortAsc ? (vb - va) : (va - vb); // numeric: höchste oben bei asc
+        return _sortAsc ? (vb - va) : (va - vb);
     });
     return Object.fromEntries(entries);
 }
+
+// ─── RENDER PORTFOLIO ────────────────────────────────────
 
 function renderPortfolio() {
     const list = document.getElementById('positions-list');
@@ -380,12 +365,10 @@ function renderPortfolio() {
         acc[key].buys.push(item);
         acc[key].totalValue  += item.totalCHF;
         acc[key].totalAmount += item.amount;
-        // Use latest manual_price if set
         if (item.manual_price != null) acc[key].manual_price = item.manual_price;
         return acc;
     }, {});
 
-    // Sortierung anwenden
     grouped = sortGrouped(grouped);
 
     for (const key in grouped) {
@@ -394,7 +377,6 @@ function renderPortfolio() {
         const noChart  = ['bond', 'real_estate', 'other'].includes(atype);
         investmentTotal += asset.totalValue;
 
-        // Current value: use manual_price if set and no ticker
         const hasTicker    = asset.buys.some(b => b.ticker);
         const manualPrice  = asset.manual_price;
         const manualNote   = (!hasTicker && manualPrice != null)
@@ -471,15 +453,13 @@ function renderDonut() {
     }, {});
     if (cashBalance > 0) grouped['__cash__'] = { label: 'Cash', value: cashBalance };
 
-    const entries    = Object.values(grouped).sort((a, b) => b.value - a.value);  // grösste zuerst
+    const entries    = Object.values(grouped).sort((a, b) => b.value - a.value);
     const grandTotal = entries.reduce((s, e) => s + e.value, 0);
-    // Theme-Farben zur Laufzeit holen (wechseln mit Theme)
     const colors     = entries.map((_, i) => getChartColors()[i % 6]);
 
     if (myDonutChart) { myDonutChart.destroy(); myDonutChart = null; }
     if (!entries.length) return;
 
-    // Border-Farbe = Surface (kein schwarzer Rand), zur Laufzeit aufgelöst
     const surfaceColor = getVar('--surface') || '#ffffff';
     const tt = getTooltipDefaults();
 
@@ -499,7 +479,6 @@ function renderDonut() {
     if (centerEl) centerEl.innerHTML = `${grandTotal.toLocaleString('de-CH', {maximumFractionDigits: 0})}<br><span style="font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;letter-spacing:0.1em">CHF</span>`;
 
     const legendEl = document.getElementById('donut-legend');
-    // Legende neu aufbauen mit aktuellen Theme-Farben
     const freshColors = getChartColors();
     if (legendEl) legendEl.innerHTML = entries.map((e, i) => `
         <div class="legend-item">
@@ -520,7 +499,6 @@ async function loadPerformanceChart(period = 'max') {
     const badge = document.getElementById('chart-return-badge');
     if (badge) badge.style.display = 'none';
 
-    // Nur Chart-fähige Assets (Aktien/ETFs mit Ticker) für den Chart verwenden
     const CHART_TYPES = ['stock', null, undefined, ''];
     const chartAssets = portfolio.filter(i =>
         CHART_TYPES.includes(i.asset_type) && i.ticker
@@ -577,7 +555,6 @@ async function loadPerformanceChart(period = 'max') {
                 const inChart = ['stock', '', null, undefined].includes(atype) && asset.ticker;
 
                 if (inChart) {
-                    // Normal: Kurs von yfinance
                     const tickerData = allData.find(d => d.ticker === asset.ticker);
                     if (tickerData) {
                         const price = getPriceForDate(tickerData.history, dateLabel, datePrefix);
@@ -587,11 +564,9 @@ async function loadPerformanceChart(period = 'max') {
                         marketVal += asset.amount * (lastKnownPrices[asset.ticker] || 0) * assetFX;
                     }
                 } else if (asset.manual_price != null) {
-                    // Manueller Kurs: konstanter Wert (kein Verlauf verfügbar)
                     const fx = asset.currency === 'CHF' ? 1 : getFxRate(allData, asset.currency || 'CHF', dateLabel);
                     marketVal += asset.amount * asset.manual_price * fx;
                 } else {
-                    // Kein Ticker, kein manueller Kurs → Kaufwert als Näherung
                     marketVal += asset.totalCHF;
                 }
             });
@@ -600,7 +575,6 @@ async function loadPerformanceChart(period = 'max') {
             investedValues.push(investedVal || null);
         });
 
-        // Hole aktuelle Theme-Farben aus CSS-Variablen (zur Laufzeit aufgelöst)
         const lineColor = getVar('--chart-line') || '#5B8DEF';
         const fillColor = getVar('--chart-fill') || 'rgba(169,201,255,0.12)';
         const invColor  = getVar('--chart-inv')  || '#D0DAF0';
@@ -666,11 +640,46 @@ async function loadPerformanceChart(period = 'max') {
             badge.textContent   = (twrPct >= 0 ? '+' : '') + twrPct.toFixed(2) + '% TWR';
         }
 
-        const nonChfAssets = portfolio.filter(p => (p.currency || 'USD') !== 'CHF');
-        const avgFX = nonChfAssets.length > 0 ? nonChfAssets.reduce((s, p) => s + p.rate, 0) / nonChfAssets.length : 1;
-        const fxChg = avgFX > 0 ? ((lastKnownFX - avgFX) / avgFX * 100) : 0;
+        // ── KORREKTER FX-EFFEKT (gewichtet nach Anzahl Stück pro Asset-Gruppe) ──
+        let _totalStockGain = 0;
+        let _totalFxGain    = 0;
 
-        currentPerfData = { currentVal, invested, profitCHF, profitPct, fxEffect: fxChg };
+        const _assetGroups = portfolio.reduce((acc, asset) => {
+            const k = asset.ticker || asset.isin;
+            if (!acc[k]) acc[k] = { items: [], totalAmount: 0, ticker: asset.ticker };
+            acc[k].items.push(asset);
+            acc[k].totalAmount += asset.amount;
+            return acc;
+        }, {});
+
+        for (const key in _assetGroups) {
+            const g        = _assetGroups[key];
+            const currency = g.items[0]?.currency || 'USD';
+
+            // Gewichteter Ø-Kaufkurs nach Anzahl Stück
+            const avgBuyRate = currency === 'CHF' ? 1 :
+                g.items.reduce((s, a) => s + a.amount * a.rate, 0) / g.totalAmount;
+
+            const currentFX    = getCurrentFxRate(allData, currency);
+            const tickerData   = allData.find(d => d.ticker === g.ticker);
+            const currentPrice = tickerData?.history?.at(-1)?.price || lastKnownPrices[g.ticker] || 0;
+            const investedCHF  = g.items.reduce((s, a) => s + a.totalCHF, 0);
+
+            const currentValueCHF = g.totalAmount * currentPrice * currentFX;
+            const valueAtBuyRate  = g.totalAmount * currentPrice * avgBuyRate;
+
+            _totalStockGain += valueAtBuyRate - investedCHF;
+            _totalFxGain    += (currency === 'CHF') ? 0 : (currentValueCHF - valueAtBuyRate);
+        }
+
+        const _fxEffectPct = invested > 0 ? (_totalFxGain / invested * 100) : 0;
+
+        currentPerfData = {
+            currentVal, invested, profitCHF, profitPct,
+            fxEffect:     _fxEffectPct,
+            fxGainCHF:    _totalFxGain,
+            stockGainCHF: _totalStockGain,
+        };
         displayPerformance();
 
     } catch (e) { console.error('Chart-Fehler:', e); }
@@ -689,9 +698,12 @@ function displayPerformance() {
     const gvMit     = p.profitCHF - totalFees;
     const rendOhne  = p.invested > 0 ? (gvOhne / p.invested * 100) : 0;
     const rendMit   = p.invested > 0 ? (gvMit  / p.invested * 100) : 0;
-    const stockGainPct = p.profitPct - p.fxEffect;
-    const stockGainCHF = p.invested * stockGainPct / 100;
-    const fxGainCHF    = p.invested * p.fxEffect   / 100;
+
+    // ── KORRIGIERT: direkt aus currentPerfData lesen ──────
+    const stockGainCHF = p.stockGainCHF ?? 0;
+    const fxGainCHF    = p.fxGainCHF    ?? 0;
+    const stockGainPct = p.invested > 0 ? (stockGainCHF / p.invested * 100) : 0;
+    const fxEffectPct  = p.fxEffect ?? 0;
 
     const col    = v => v >= 0 ? 'var(--green)' : 'var(--red)';
     const fmt    = v => (v >= 0 ? '+' : '') + v.toLocaleString('de-CH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -730,7 +742,7 @@ function displayPerformance() {
                 ${card('Aktueller Wert',       'akt-wert',     p.currentVal.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}), 'CHF', 'var(--text2)')}
                 ${card('G / V inkl. Gebühren', 'rendite-fees', fmt(gvMit) + ' CHF', fmtPct(rendMit), col(gvMit))}
                 ${card('Kurseffekt',           'kurseffekt',   fmt(stockGainCHF) + ' CHF', fmtPct(stockGainPct), col(stockGainCHF))}
-                ${card('Währungseffekt',       'fx-effekt',    fmt(fxGainCHF) + ' CHF', fmtPct(p.fxEffect), col(fxGainCHF))}
+                ${card('Währungseffekt',       'fx-effekt',    fmt(fxGainCHF) + ' CHF', fmtPct(fxEffectPct), col(fxGainCHF))}
                 ${card('Gebühren',             'fees',         '-' + totalFees.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' CHF', 'Stempel + Sonstige', 'var(--red)')}
             </div>
             <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
@@ -828,9 +840,11 @@ async function loadAssetOverview() {
             const g        = grouped[key];
             const currency = g.items[0]?.currency || 'USD';
             const currentFX = getCurrentFxRate(allData, currency);
-            const avgBuyRate = currency === 'CHF' ? 1 : (g.rateSum / g.items.length);
 
-            // Aktuellen Preis bestimmen: yfinance > manual_price > Kaufwert
+            // ── KORRIGIERT: Gewichteter Ø-Kaufkurs nach Anzahl Stück ──
+            const avgBuyRate = currency === 'CHF' ? 1 :
+                g.items.reduce((s, it) => s + it.amount * it.rate, 0) / g.totalAmount;
+
             let currentPrice = 0;
             let priceSource  = 'none';
             if (g.ticker) {
@@ -845,7 +859,7 @@ async function loadAssetOverview() {
 
             const currentVal = currentPrice > 0
                 ? g.totalAmount * currentPrice * currentFX
-                : g.totalInvested; // Fallback: Kaufwert
+                : g.totalInvested;
             const invested   = g.totalInvested;
             const atBuyRate  = g.totalAmount * currentPrice * avgBuyRate;
             const stockGain  = currentPrice > 0 ? (atBuyRate - invested) : 0;
@@ -913,7 +927,7 @@ async function loadAssetOverview() {
                                 <td class="overview-td num">${fmtCHF(r.invested)}</td>
                                 ${gainCell(r.totalGain)}${gainCell(r.stockGain)}${gainCell(r.fxGain)}
                                 <td class="overview-td num" style="color:var(--red)">${r.fees > 0 ? '-' + fmtCHF(r.fees) : '—'}</td>
-                            </tr>`;}).join('')}
+                            </tr>`; }).join('')}
                             <tr class="overview-total-row">
                                 <td class="overview-td idx"></td>
                                 <td class="overview-td"><span class="ov-name">Total</span></td>
@@ -1023,7 +1037,6 @@ let _showTrendline  = false;
 
 const ANALYSIS_COLORS = ['#5B8DEF','#E07B39','#2ECC71','#9B59B6','#E74C3C','#F1C40F','#1ABC9C','#E91E63','#3498DB','#FF6B35'];
 
-// Zeiträume für Analyse-Chart (erweitert)
 const ANALYSIS_PERIODS = [
     ['5d',   '1W'],
     ['1mo',  '1M'],
@@ -1058,7 +1071,6 @@ async function loadAnalysisCharts() {
     if (!container) return;
     _showTrendline = false;
 
-    // Standard-Period ist '1y' (Index 4 in ANALYSIS_PERIODS)
     const defaultPeriodIdx = 4;
 
     container.innerHTML = `
@@ -1185,7 +1197,6 @@ function renderAnalysisChart(names) {
         return { label: names[sym] || sym, data, borderColor: color, backgroundColor: 'transparent', tension: 0.2, pointRadius: 0, borderWidth: 2 };
     });
 
-    // Trendlinie
     if (_showTrendline && activeSorted.length > 0) {
         const avgData = dateAxis.map((_, idx) => {
             const vals = datasets.map(ds => ds.data[idx]).filter(v => v != null);
@@ -1275,12 +1286,10 @@ function clearTransactionForm() {
     if (preview) preview.style.display = 'none';
 }
 
-// Asset-Typ Felder ein-/ausblenden
 function updateAssetTypeFields() {
     const type        = document.getElementById('asset-type')?.value || 'stock';
     const tickerField = document.getElementById('ticker-field');
     const manualField = document.getElementById('manual-price-field');
-    // Bei Anleihen/Immobilien/Sonstiges: Ticker ausblenden, manueller Kurs einblenden
     const noTicker = ['bond', 'real_estate', 'other'].includes(type);
     if (tickerField) tickerField.style.display = noTicker ? 'none' : '';
     if (manualField) manualField.style.display  = noTicker ? 'flex' : 'none';
@@ -1293,7 +1302,6 @@ function updateAssetTypeFields() {
 function updateEditAssetTypeFields() {
     const type        = document.getElementById('edit-asset-type')?.value || 'stock';
     const manualField = document.getElementById('edit-manual-price-field');
-    // Manueller Kurs immer sichtbar im Edit (auch für Aktien kann man überschreiben)
     if (manualField) manualField.style.display = 'flex';
 }
 
@@ -1331,12 +1339,6 @@ function updateEditCurrencyFields() {
     if (rateField) rateField.style.display = currency === 'CHF' ? 'none' : 'flex';
 }
 
-// Asset-Typ Label
-const ASSET_TYPE_LABELS = {
-    stock: 'Aktie/ETF', bond: 'Anleihe',
-    real_estate: 'Immobilien', other: 'Sonstiges'
-};
-
 // ─── CRUD ────────────────────────────────────────────────
 
 async function calculate() {
@@ -1361,15 +1363,7 @@ async function calculate() {
     try {
         const res = await fetch('/api/portfolio', { credentials: 'include', method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name, isin, amount, currency,
-                priceUSD: isNaN(price) ? 0 : price,
-                rate, date, totalCHF,
-                ticker,
-                fee_stamp: feeStamp, fee_other: feeOther,
-                asset_type: assetType,
-                manual_price: manualPrice
-            })
+            body: JSON.stringify({ name, isin, amount, currency, priceUSD: isNaN(price) ? 0 : price, rate, date, totalCHF, ticker, fee_stamp: feeStamp, fee_other: feeOther, asset_type: assetType, manual_price: manualPrice })
         });
         if (!res.ok) throw new Error();
         await loadDataFromServer(); renderPortfolio(); toggleModal(false);
@@ -1426,20 +1420,12 @@ async function saveEdit() {
     try {
         await fetch(`/api/portfolio/${dbId}`, { credentials: 'include', method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ...item, name, isin, ticker, currency, amount,
-                priceUSD: price, rate, date,
-                totalCHF: amount * price * rate,
-                fee_stamp: feeStamp, fee_other: feeOther,
-                asset_type: assetType,
-                manual_price: manualPrice
-            })
+            body: JSON.stringify({ ...item, name, isin, ticker, currency, amount, priceUSD: price, rate, date, totalCHF: amount * price * rate, fee_stamp: feeStamp, fee_other: feeOther, asset_type: assetType, manual_price: manualPrice })
         });
         await loadDataFromServer(); renderPortfolio(); toggleEditModal(false);
     } catch (e) { alert('Fehler beim Speichern.'); }
 }
 
-// Nur den manuellen Kurs aktualisieren (ohne den Rest zu überschreiben)
 async function updateManualPriceOnly() {
     const dbId  = parseInt(document.getElementById('edit-id')?.value);
     const price = parseFloat(document.getElementById('edit-manual-price')?.value);
@@ -1449,10 +1435,8 @@ async function updateManualPriceOnly() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ manual_price: price })
         });
-        // Local update ohne Server-Reload
         portfolio.forEach(p => { if (p.id === dbId) p.manual_price = price; });
         renderPortfolio();
-        // Kleines visuelles Feedback
         const btn = document.querySelector('#edit-modal [onclick="updateManualPriceOnly()"]');
         if (btn) {
             const orig = btn.textContent;
@@ -1544,12 +1528,11 @@ function setEl(id, val) {
 
 // ─── REBALANCING ──────────────────────────────────────────
 
-let _targets       = [];   // [{isin, name, target_pct}]
+let _targets       = [];
 let _rebChart      = null;
-let _currentPrices = {};   // {isin: currentValueCHF}
+let _currentPrices = {};
 
 async function loadRebalancingPage() {
-    // Ziel-Allokationen laden
     try {
         const res = await fetch('/api/targets', { credentials: 'include' });
         _targets = await res.json();
@@ -1563,7 +1546,6 @@ function renderTargetEditor() {
     const container = document.getElementById('target-editor');
     if (!container) return;
 
-    // Alle einzigartigen Positionen aus Portfolio
     const positions = Object.values(portfolio.reduce((acc, item) => {
         const key = item.isin || item.name;
         if (!acc[key]) acc[key] = { name: item.name, isin: item.isin || item.name };
@@ -1644,26 +1626,19 @@ async function saveTargets() {
 }
 
 async function computeAndRenderRebalancing() {
-    if (!_targets.length) {
-        renderRebalancingEmpty();
-        return;
-    }
+    if (!_targets.length) { renderRebalancingEmpty(); return; }
 
-    // Aktuelle Marktwerte via yfinance holen
     const tickers    = [...new Set(portfolio.map(i => i.ticker))].filter(Boolean);
     const fxTickers  = getRequiredFxTickers();
-    const allTickers = [...tickers, ...fxTickers];
-
     let allData = [];
     try {
-        allData = await Promise.all(allTickers.map(async t => {
+        allData = await Promise.all([...tickers, ...fxTickers].map(async t => {
             const res  = await fetch(`/get_history?symbol=${t}&period=5d`, { credentials: 'include' });
             const data = await res.json();
             return { ticker: t, history: Array.isArray(data) ? data : [] };
         }));
     } catch(e) {}
 
-    // Aktuelle Werte pro ISIN berechnen
     const grouped = portfolio.reduce((acc, item) => {
         const key = item.isin || item.name;
         if (!acc[key]) acc[key] = { name: item.name, isin: item.isin || item.name, ticker: item.ticker, totalAmount: 0, totalInvested: 0, items: [] };
@@ -1687,10 +1662,8 @@ async function computeAndRenderRebalancing() {
         totalCurrentCHF += valueCHF;
     }
 
-    // Cash dazurechnen
     totalCurrentCHF += cashBalance;
 
-    // Rebalancing berechnen
     const rows = _targets.map(t => {
         const pos        = positionValues[t.isin] || { valueCHF: 0, name: t.name };
         const istCHF     = pos.valueCHF;
@@ -1791,7 +1764,6 @@ function renderRebalancingTable(rows, totalCHF) {
 // ─── EXPORT ───────────────────────────────────────────────
 
 function getAuthToken() {
-    // Token aus den gespeicherten Profilen holen
     try {
         const profiles = JSON.parse(localStorage.getItem('dario_profiles') || '[]');
         const current  = profiles.find(p => p.userId === window._currentUserId);
@@ -1811,7 +1783,7 @@ function exportPDF() {
 
 // ─── CSV IMPORT ──────────────────────────────────────────
 
-let _importRows = [];   // Parsed rows ready to send
+let _importRows = [];
 
 function openImportModal() {
     document.getElementById('import-modal').classList.add('open');
@@ -1843,10 +1815,7 @@ function handleImportDrop(e) {
 
 function handleImportFile(file) {
     if (!file) return;
-    if (!file.name.match(/\.(csv|txt)$/i)) {
-        showImportError('Bitte eine .csv oder .txt Datei auswählen.');
-        return;
-    }
+    if (!file.name.match(/\.(csv|txt)$/i)) { showImportError('Bitte eine .csv oder .txt Datei auswählen.'); return; }
     const reader = new FileReader();
     reader.onload = e => parseImportCSV(e.target.result);
     reader.onerror = () => showImportError('Datei konnte nicht gelesen werden.');
@@ -1859,66 +1828,32 @@ function showImportError(msg) {
     el.style.display = 'block';
 }
 
-// Column name aliases — maps various header names → our internal key
 const COL_MAP = {
-    // Our own export format
-    'datum':               'date',
-    'name':                'name',
-    'isin':                'isin',
-    'ticker':              'ticker',
-    'währung':             'currency',
-    'waehrung':            'currency',
-    'currency':            'currency',
-    'anzahl':              'amount',
-    'amount':              'amount',
-    'kurs':                'priceUSD',
-    'preis':               'priceUSD',
-    'price':               'priceUSD',
-    'priceusd':            'priceUSD',
-    'wechselkurs':         'rate',
-    'rate':                'rate',
-    'exchange rate':       'rate',
-    'total chf':           'totalCHF',
-    'totalchf':            'totalCHF',
-    'total':               'totalCHF',
-    'stempelsteuer chf':   'fee_stamp',
-    'stempelsteuer':       'fee_stamp',
-    'fee_stamp':           'fee_stamp',
-    'sonstige kosten chf': 'fee_other',
-    'sonstige kosten':     'fee_other',
-    'fee_other':           'fee_other',
-    'fees':                'fee_other',
-    'asset-typ':           'asset_type',
-    'asset_type':          'asset_type',
-    'assettyp':            'asset_type',
-    'typ':                 'asset_type',
-    'manueller kurs':      'manual_price',
-    'manual_price':        'manual_price',
-    'manuellerkurs':       'manual_price',
+    'datum': 'date', 'name': 'name', 'isin': 'isin', 'ticker': 'ticker',
+    'währung': 'currency', 'waehrung': 'currency', 'currency': 'currency',
+    'anzahl': 'amount', 'amount': 'amount',
+    'kurs': 'priceUSD', 'preis': 'priceUSD', 'price': 'priceUSD', 'priceusd': 'priceUSD',
+    'wechselkurs': 'rate', 'rate': 'rate', 'exchange rate': 'rate',
+    'total chf': 'totalCHF', 'totalchf': 'totalCHF', 'total': 'totalCHF',
+    'stempelsteuer chf': 'fee_stamp', 'stempelsteuer': 'fee_stamp', 'fee_stamp': 'fee_stamp',
+    'sonstige kosten chf': 'fee_other', 'sonstige kosten': 'fee_other', 'fee_other': 'fee_other', 'fees': 'fee_other',
+    'asset-typ': 'asset_type', 'asset_type': 'asset_type', 'assettyp': 'asset_type', 'typ': 'asset_type',
+    'manueller kurs': 'manual_price', 'manual_price': 'manual_price', 'manuellerkurs': 'manual_price',
 };
 
 function parseImportCSV(text) {
-    // Detect delimiter: ; or ,
     const firstLine = text.split('\n')[0];
     const delim = (firstLine.match(/;/g) || []).length >= (firstLine.match(/,/g) || []).length ? ';' : ',';
-
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length < 2) { showImportError('CSV hat zu wenige Zeilen.'); return; }
 
-    // Parse header
     const headers = lines[0].split(delim).map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
     const colIdx  = {};
-    headers.forEach((h, i) => {
-        const mapped = COL_MAP[h];
-        if (mapped) colIdx[mapped] = i;
-    });
+    headers.forEach((h, i) => { const mapped = COL_MAP[h]; if (mapped) colIdx[mapped] = i; });
 
     const required = ['name', 'isin'];
     const missing  = required.filter(k => colIdx[k] === undefined);
-    if (missing.length) {
-        showImportError(`Pflicht-Spalten fehlen: ${missing.join(', ')}. Erste Zeile der CSV: "${lines[0]}"`);
-        return;
-    }
+    if (missing.length) { showImportError(`Pflicht-Spalten fehlen: ${missing.join(', ')}`); return; }
 
     const warnings = [];
     _importRows = [];
@@ -1926,27 +1861,18 @@ function parseImportCSV(text) {
     for (let li = 1; li < lines.length; li++) {
         const line = lines[li];
         if (!line.trim()) continue;
-
-        // Respect quoted fields
         const cells = splitCSVLine(line, delim);
-
-        const get = key => {
-            const idx = colIdx[key];
-            return idx !== undefined ? (cells[idx] || '').trim().replace(/^["']|["']$/g, '') : '';
-        };
-
-        const name   = get('name');
-        const isin   = get('isin').toUpperCase();
+        const get = key => { const idx = colIdx[key]; return idx !== undefined ? (cells[idx] || '').trim().replace(/^["']|["']$/g, '') : ''; };
+        const name = get('name'), isin = get('isin').toUpperCase();
         if (!name || !isin) { warnings.push(`Zeile ${li+1}: Name oder ISIN leer — übersprungen`); continue; }
 
         const amount   = parseFloat(get('amount'))   || 0;
         const priceUSD = parseFloat(get('priceUSD')) || 0;
-        const rate     = parseFloat(get('rate'))     || (get('currency').toUpperCase() === 'CHF' ? 1 : 1);
+        const rate     = parseFloat(get('rate'))     || 1;
         let   totalCHF = parseFloat(get('totalCHF')) || 0;
         if (totalCHF === 0 && amount > 0 && priceUSD > 0) totalCHF = amount * priceUSD * rate;
 
-        const assetType = get('asset_type') || 'stock';
-        const manualRaw = get('manual_price');
+        const manualRaw   = get('manual_price');
         const manualPrice = manualRaw !== '' ? (parseFloat(manualRaw) || null) : null;
 
         _importRows.push({
@@ -1957,13 +1883,12 @@ function parseImportCSV(text) {
             date:      get('date'),
             fee_stamp: parseFloat(get('fee_stamp')) || 0,
             fee_other: parseFloat(get('fee_other')) || 0,
-            asset_type: assetType,
+            asset_type: get('asset_type') || 'stock',
             manual_price: manualPrice,
         });
     }
 
     if (!_importRows.length) { showImportError('Keine gültigen Zeilen gefunden.'); return; }
-
     showImportPreview(warnings);
 }
 
@@ -1984,44 +1909,19 @@ function splitCSVLine(line, delim) {
 function showImportPreview(warnings) {
     document.getElementById('import-step-1').style.display = 'none';
     document.getElementById('import-step-2').style.display = '';
-
     document.getElementById('import-preview-count').textContent =
         `${_importRows.length} Transaktion${_importRows.length !== 1 ? 'en' : ''} erkannt`;
 
-    // Warn box
     const warnEl = document.getElementById('import-warn');
-    if (warnings.length) {
-        warnEl.style.display = '';
-        warnEl.innerHTML = warnings.map(w => `<div>⚠ ${w}</div>`).join('');
-    } else {
-        warnEl.style.display = 'none';
-    }
+    if (warnings.length) { warnEl.style.display = ''; warnEl.innerHTML = warnings.map(w => `<div>⚠ ${w}</div>`).join(''); }
+    else { warnEl.style.display = 'none'; }
 
-    // Preview table (max 5 rows)
     const preview = _importRows.slice(0, 5);
     const cols    = ['date', 'name', 'isin', 'ticker', 'currency', 'amount', 'priceUSD', 'asset_type'];
     const labels  = ['Datum', 'Name', 'ISIN', 'Ticker', 'Währung', 'Anzahl', 'Kurs', 'Typ'];
 
-    const thead = `<thead><tr>${labels.map(l =>
-        `<th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--text3);
-                    letter-spacing:0.04em;text-transform:uppercase;border-bottom:1px solid var(--border);
-                    white-space:nowrap;background:var(--surface2)">${l}</th>`
-    ).join('')}</tr></thead>`;
-
-    const tbody = `<tbody>${preview.map(r =>
-        `<tr>${cols.map(c =>
-            `<td style="padding:7px 10px;font-family:var(--mono);font-size:11px;
-                        color:var(--text2);border-bottom:1px solid var(--border);
-                        white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis">
-                ${r[c] != null && r[c] !== '' ? r[c] : '<span style="color:var(--text3)">—</span>'}
-             </td>`
-        ).join('')}</tr>`
-    ).join('')}${_importRows.length > 5
-        ? `<tr><td colspan="${cols.length}" style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:center;font-family:var(--mono)">
-               … und ${_importRows.length - 5} weitere
-           </td></tr>` : ''
-    }</tbody>`;
-
+    const thead = `<thead><tr>${labels.map(l => `<th style="padding:7px 10px;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.04em;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--surface2)">${l}</th>`).join('')}</tr></thead>`;
+    const tbody = `<tbody>${preview.map(r => `<tr>${cols.map(c => `<td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--text2);border-bottom:1px solid var(--border);white-space:nowrap">${r[c] != null && r[c] !== '' ? r[c] : '<span style="color:var(--text3)">—</span>'}</td>`).join('')}</tr>`).join('')}${_importRows.length > 5 ? `<tr><td colspan="${cols.length}" style="padding:8px 10px;font-size:11px;color:var(--text3);text-align:center;font-family:var(--mono)">… und ${_importRows.length - 5} weitere</td></tr>` : ''}</tbody>`;
     document.getElementById('import-preview-table').innerHTML = thead + tbody;
 }
 
@@ -2044,10 +1944,8 @@ async function confirmImport() {
 
         if (data.imported > 0) {
             document.getElementById('import-result-icon').textContent = '✓';
-            document.getElementById('import-result-text').textContent =
-                `${data.imported} Transaktion${data.imported !== 1 ? 'en' : ''} erfolgreich importiert${data.skipped ? `, ${data.skipped} übersprungen` : ''}.`;
+            document.getElementById('import-result-text').textContent = `${data.imported} Transaktion${data.imported !== 1 ? 'en' : ''} erfolgreich importiert${data.skipped ? `, ${data.skipped} übersprungen` : ''}.`;
             document.getElementById('import-result-text').style.color = 'var(--green)';
-            // Reload portfolio data
             await loadDataFromServer();
             renderPortfolio();
         } else {
@@ -2057,8 +1955,7 @@ async function confirmImport() {
         }
 
         if (data.errors?.length) {
-            document.getElementById('import-result-errors').innerHTML =
-                data.errors.map(e => `<div style="margin-bottom:3px">• ${e}</div>`).join('');
+            document.getElementById('import-result-errors').innerHTML = data.errors.map(e => `<div style="margin-bottom:3px">• ${e}</div>`).join('');
         }
     } catch(e) {
         btn.textContent = 'Importieren';

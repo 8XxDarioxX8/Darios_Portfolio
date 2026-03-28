@@ -477,6 +477,7 @@ def import_csv():
     conn.commit()
     conn.close()
     return jsonify({'imported': imported, 'skipped': len(errors), 'errors': errors})
+@app.route('/api/export/pdf')
 def export_pdf():
     user_id = require_login()
     if not user_id: return jsonify({'error': 'Nicht eingeloggt'}), 401
